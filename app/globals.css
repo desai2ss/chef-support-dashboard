@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  background: #f7f7f5;
+  color: #1f1f1f;
+}
+
+.pill { @apply inline-block px-2 py-0.5 rounded-full text-[11px] font-medium; }
+.pill-live { @apply bg-green-100 text-green-800; }
+.pill-pending { @apply bg-amber-100 text-amber-800; }
+.pill-down { @apply bg-red-100 text-red-800; }
+.pill-ontrack { @apply bg-green-100 text-green-800; }
+.pill-atrisk { @apply bg-amber-100 text-amber-800; }
+.pill-blocked { @apply bg-purple-100 text-purple-800; }
+.pill-readonly { @apply bg-gray-100 text-gray-700; }
+
+.card { @apply bg-white border border-line rounded-xl p-5 shadow-[0_1px_0_rgba(0,0,0,.02)]; }
+.stat { @apply bg-white border border-line rounded-xl p-4; }
+.stat-label { @apply text-[11px] text-muted uppercase tracking-wider; }
+.stat-value { @apply text-2xl font-semibold mt-0.5; }
+.stat-delta { @apply text-[11px] text-muted mt-0.5; }
+.input { @apply border border-line rounded-md px-2 py-1.5 text-sm bg-white w-full; }
+.btn { @apply bg-ink text-white rounded-md px-3 py-1.5 text-xs font-medium; }
+.btn-secondary { @apply bg-white text-ink border border-line rounded-md px-3 py-1.5 text-xs font-medium; }
+.btn-danger { @apply bg-white text-red-700 border border-red-200 rounded-md px-2 py-1 text-xs font-medium; }
