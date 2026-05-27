@@ -133,63 +133,100 @@ export default function TicketsTable() {
       {filtered.length === 0 ? (
         <div className="text-muted text-sm italic">No tickets match this filter.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase text-muted border-b border-line">
-                <th className="text-left py-2 w-16">#</th>
-                <th className="text-left py-2">Title</th>
-                <th className="text-left py-2 w-32">Site</th>
-                <th className="text-left py-2 w-32">Module</th>
-                <th className="text-left py-2 w-40">Assignee</th>
-                <th className="text-left py-2 w-44">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <tr key={r.id} className="border-b border-line/50 hover:bg-cream/60">
-                  <td className="py-2.5 align-top">
-                    {r.link ? (
-                      <a
-                        href={r.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
-                      >
-                        {r.number ?? "—"}
-                      </a>
-                    ) : (
-                      <span className="text-muted">{r.number ?? "—"}</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 align-top">{r.title}</td>
-                  <td className="py-2.5 align-top">{r.site}</td>
-                  <td className="py-2.5 align-top">
-                    {r.module ? (
-                      <span className="text-ink">{r.module}</span>
-                    ) : (
-                      <span className="text-amber-400">Untagged</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 align-top text-muted">
-                    {r.assignee ?? <span className="italic">(unassigned)</span>}
-                  </td>
-                  <td className="py-2.5 align-top">
-                    <span
-                      className={
-                        "inline-block px-2 py-0.5 rounded text-xs border " +
-                        (STATE_PILL[r.state] ?? "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700")
-                      }
-                    >
-                      {STATE_LABEL[r.state] ?? r.state}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <GroupedBySite rows={filtered} />
       )}
+    </div>
+  );
+}
+
+function GroupedBySite({ rows }: { rows: Row[] }) {
+  // Group preserving insertion order of the first ticket per site
+  const order: string[] = [];
+  const bySite = new Map<string, Row[]>();
+  for (const r of rows) {
+    const key = r.site || "Unassigned site";
+    if (!bySite.has(key)) {
+      order.push(key);
+      bySite.set(key, []);
+    }
+    bySite.get(key)!.push(r);
+  }
+  // Sort sites alphabetically (case-insensitive) for stable display
+  order.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+  return (
+    <div className="space-y-6">
+      {order.map((site) => (
+        <section key={site}>
+          <div className="flex items-baseline gap-2 mb-2">
+            <h3 className="text-sm font-semibold text-ink">{site}</h3>
+            <span className="text-xs text-muted">
+              {bySite.get(site)!.length} ticket
+              {bySite.get(site)!.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-muted bg-cream">
+                  <th className="text-left py-2 px-3 w-16 font-medium">#</th>
+                  <th className="text-left py-2 px-3 font-medium">Title</th>
+                  <th className="text-left py-2 px-3 w-32 font-medium">Module</th>
+                  <th className="text-left py-2 px-3 w-40 font-medium">Assignee</th>
+                  <th className="text-left py-2 px-3 w-44 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bySite.get(site)!.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="border-t border-line/60 hover:bg-cream/60"
+                  >
+                    <td className="py-2.5 px-3 align-top">
+                      {r.link ? (
+                        <a
+                          href={r.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {r.number ?? "—"}
+                        </a>
+                      ) : (
+                        <span className="text-muted">{r.number ?? "—"}</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 align-top">{r.title}</td>
+                    <td className="py-2.5 px-3 align-top">
+                      {r.module ? (
+                        <span className="text-ink">{r.module}</span>
+                      ) : (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          Untagged
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 align-top text-muted">
+                      {r.assignee ?? <span className="italic">(unassigned)</span>}
+                    </td>
+                    <td className="py-2.5 px-3 align-top">
+                      <span
+                        className={
+                          "inline-block px-2 py-0.5 rounded text-xs border " +
+                          (STATE_PILL[r.state] ??
+                            "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700")
+                        }
+                      >
+                        {STATE_LABEL[r.state] ?? r.state}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
