@@ -261,14 +261,43 @@ export type TicketRow = {
   tags: string[];
 };
 
+// Pylon's GET /issues (list) endpoint returns `assignee: null` on every issue
+// even when an assignee is set. To get the real assignee, we hit GET /issues/{num}
+// per ticket and pull the assignee.id, then resolve to email via the /users map.
+async function enrichIssuesWithAssignee(
+  issues: PylonIssue[]
+): Promise<PylonIssue[]> {
+  const CHUNK = 8;
+  const out: PylonIssue[] = [];
+  for (let i = 0; i < issues.length; i += CHUNK) {
+    const chunk = issues.slice(i, i + CHUNK);
+    const results = await Promise.all(
+      chunk.map(async (issue) => {
+        if (!issue.number) return issue;
+        try {
+          const full = await fetchRawIssueByNumber(String(issue.number));
+          return { ...issue, assignee: full?.assignee ?? null };
+        } catch {
+          return issue;
+        }
+      })
+    );
+    out.push(...results);
+  }
+  return out;
+}
+
 export async function getOpenTickets(): Promise<{
   total: number;
   rows: TicketRow[];
 }> {
-  const [issues, accounts] = await Promise.all([
+  const [issuesRaw, accounts, users] = await Promise.all([
     fetchOpenIssuesLast30Days(),
     fetchAllAccounts(),
+    fetchAllUsers(),
   ]);
+  // List endpoint doesn't include assignee — enrich each one via GET /issues/{num}.
+  const issues = await enrichIssuesWithAssignee(issuesRaw);
 
   const rows: TicketRow[] = [];
   for (const issue of issues) {
@@ -277,13 +306,20 @@ export async function getOpenTickets(): Promise<{
     const acc = accounts.get(accountId);
     if (!acc) continue;
     if (!matchesWhitelist(acc.name)) continue;
+    // Resolve assignee email via /users id->email map since the issue
+    // endpoint only returns assignee.id.
+    let assigneeEmail: string | null = issue.assignee?.email ?? null;
+    if (!assigneeEmail && issue.assignee?.id) {
+      const u = users.get(issue.assignee.id);
+      assigneeEmail = u?.email ?? null;
+    }
     rows.push({
       id: issue.id,
       number: issue.number ?? null,
       title: issue.title ?? "(no title)",
       site: displayNameFor(acc.name),
       module: readModule(issue),
-      assignee: issue.assignee?.email ?? null,
+      assignee: assigneeEmail,
       state: issue.state,
       link: issue.link ?? null,
       latest: issue.latest_message_time ?? issue.created_at ?? null,
