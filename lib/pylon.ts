@@ -12,7 +12,7 @@ const OPEN_STATES = ["new", "waiting_on_you", "waiting_on_customer", "on_hold"];
 type PylonIssue = {
   id: string;
   number?: number;
-  account_id?: string | null;
+  account?: { id: string } | null;
   state: string;
   title?: string;
   created_at: string;
@@ -124,15 +124,15 @@ export async function getOpenIssuesByCustomer(): Promise<{
   const grouped = new Map<string, OpenIssueAggregate>();
   let unassigned = 0;
   for (const issue of issues) {
-    if (!issue.account_id) {
+    if (!issue.account?.id) {
       unassigned++;
       continue;
     }
-    const acc = accounts.get(issue.account_id);
-    const key = acc ? acc.name : `Unknown · ${issue.account_id.slice(0, 8)}`;
+    const acc = accounts.get(issue.account!.id);
+    const key = acc ? acc.name : `Unknown · ${issue.account!.id.slice(0, 8)}`;
     const cur = grouped.get(key) ?? {
       customer: key,
-      customerId: issue.account_id,
+      customerId: issue.account!.id,
       count: 0,
       byState: {},
       latest: null,
