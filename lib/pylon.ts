@@ -38,6 +38,19 @@ function matchesWhitelist(name: string): boolean {
   return WHITELIST_NORM.some((w) => n === w || n.startsWith(w) || w.startsWith(n));
 }
 
+// Map a Pylon account name to the canonical dashboard display name (one of
+// CUSTOMER_WHITELIST entries). Returns the original name if no match.
+function displayNameFor(pylonName: string): string {
+  const n = normalize(pylonName);
+  for (let i = 0; i < WHITELIST_NORM.length; i++) {
+    const w = WHITELIST_NORM[i];
+    if (n === w || n.startsWith(w) || w.startsWith(n)) {
+      return CUSTOMER_WHITELIST[i];
+    }
+  }
+  return pylonName;
+}
+
 type PylonIssue = {
   id: string;
   number?: number;
@@ -150,13 +163,25 @@ export type OpenIssueAggregate = {
 // We try each in order until we find a value.
 const MODULE_FIELD_CANDIDATES = ["module", "robot", "robot_sn", "serial_number", "sn"];
 
+// Values that Pylon stores when "N/A / don't know" is selected on the Module
+// dropdown. Treat these as untagged for the dashboard.
+const UNTAGGED_MODULE_VALUES = new Set([
+  "n_a_or_don_t_know",
+  "n/a",
+  "na",
+  "none",
+  "unknown",
+]);
+
 function readModule(issue: PylonIssue): string | null {
   const cf = issue.custom_fields ?? {};
   for (const slug of MODULE_FIELD_CANDIDATES) {
     const v = cf[slug];
     if (!v) continue;
-    if (v.value) return v.value;
-    if (v.values && v.values.length) return v.values.join(", ");
+    const raw = v.value ?? (v.values && v.values.length ? v.values.join(", ") : null);
+    if (!raw) continue;
+    if (UNTAGGED_MODULE_VALUES.has(raw.toLowerCase())) return null;
+    return raw;
   }
   return null;
 }
@@ -194,7 +219,7 @@ export async function getOpenTickets(): Promise<{
       id: issue.id,
       number: issue.number ?? null,
       title: issue.title ?? "(no title)",
-      site: acc.name,
+      site: displayNameFor(acc.name),
       module: readModule(issue),
       assignee: issue.assignee?.email ?? null,
       state: issue.state,
