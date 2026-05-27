@@ -240,7 +240,14 @@ function readModule(issue: PylonIssue): string | null {
   for (const slug of MODULE_FIELD_CANDIDATES) {
     const v = cf[slug];
     if (!v) continue;
-    const raw = v.value ?? (v.values && v.values.length ? v.values.join(", ") : null);
+    // Pylon stores the slug in `values` (array) for SELECT custom fields,
+    // and leaves `value` as "". Prefer `values` first.
+    let raw: string | null = null;
+    if (v.values && v.values.length > 0) {
+      raw = v.values.join(", ");
+    } else if (v.value && v.value.length > 0) {
+      raw = v.value;
+    }
     if (!raw) continue;
     if (UNTAGGED_MODULE_VALUES.has(raw.toLowerCase())) return null;
     return raw;
