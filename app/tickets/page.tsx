@@ -1,30 +1,23 @@
 import { auth, signOut } from "@/auth";
-import Dashboard from "./components/Dashboard";
-import TopNav from "./components/TopNav";
+import TopNav from "../components/TopNav";
+import TicketsTable from "../components/TicketsTable";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default async function TicketsPage() {
   const session = await auth();
-  // middleware already enforces auth, but check defensively
   if (!session?.user) return null;
   // @ts-expect-error session augmented in auth.ts
   const editor: boolean = !!session.user.isEditor;
   const email = session.user.email ?? "";
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-6">
-      <header className="flex justify-between items-start mb-5">
+      <header className="flex justify-between items-start mb-3">
         <div>
           <h1 className="text-2xl font-semibold">Chef Robotics — Support Dashboard</h1>
           <div className="text-muted text-xs mt-1">
-            {today} · day-to-day metrics across Pylon, Datadog, BigQuery, and team input.
+            Open tickets across the customer fleet · pulled from Pylon
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -45,7 +38,9 @@ export default async function Home() {
 
       <TopNav />
 
-      <Dashboard editor={editor} />
+      <section className="card">
+        <TicketsTable />
+      </section>
     </main>
   );
 }

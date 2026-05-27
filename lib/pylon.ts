@@ -9,14 +9,49 @@
 const BASE = "https://api.usepylon.com";
 const OPEN_STATES = ["new", "waiting_on_you", "waiting_on_customer", "on_hold"];
 
+// Whitelist of customers we care about. Pylon account names may differ slightly
+// in casing/punctuation/suffix (e.g. "Cookunity" vs "CookUnity LA", "f&S" vs "F&S",
+// "Cafe Spice" vs "CafeSpice"), so we match with normalize() below.
+const CUSTOMER_WHITELIST = [
+  "f&S",
+  "Amy's Medford",
+  "Amy's Pocatello",
+  "Chef Bombay",
+  "Cafe Spice",
+  "Bonduelle",
+  "POH",
+  "TF Internal",
+  "Cookunity",
+];
+
+// Lowercase, strip non-alphanumerics so "Cafe Spice" / "CafeSpice" / "cafe-spice"
+// all collapse to "cafespice".
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const WHITELIST_NORM = CUSTOMER_WHITELIST.map(normalize);
+
+// Either name is a prefix/contains-match of the other after normalization.
+function matchesWhitelist(name: string): boolean {
+  const n = normalize(name);
+  return WHITELIST_NORM.some((w) => n === w || n.startsWith(w) || w.startsWith(n));
+}
+
 type PylonIssue = {
   id: string;
   number?: number;
+  // Pylon's API returns a nested MiniAccount object ({ id, external_ids })
+  // — NOT a top-level account_id. We extract account.id below.
   account?: { id: string } | null;
+  assignee?: { id: string; email?: string } | null;
   state: string;
   title?: string;
   created_at: string;
   latest_message_time?: string;
+  link?: string;
+  tags?: string[];
+  custom_fields?: Record<string, { slug: string; value?: string; values?: string[] }>;
 };
 
 type PylonAccount = {
@@ -111,6 +146,68 @@ export type OpenIssueAggregate = {
   latest: string | null;
 };
 
+// Common custom-field slugs that might carry the "Module" / robot SN.
+// We try each in order until we find a value.
+const MODULE_FIELD_CANDIDATES = ["module", "robot", "robot_sn", "serial_number", "sn"];
+
+function readModule(issue: PylonIssue): string | null {
+  const cf = issue.custom_fields ?? {};
+  for (const slug of MODULE_FIELD_CANDIDATES) {
+    const v = cf[slug];
+    if (!v) continue;
+    if (v.value) return v.value;
+    if (v.values && v.values.length) return v.values.join(", ");
+  }
+  return null;
+}
+
+export type TicketRow = {
+  id: string;
+  number: number | null;
+  title: string;
+  site: string; // customer / account name
+  module: string | null;
+  assignee: string | null; // email
+  state: string;
+  link: string | null;
+  latest: string | null;
+  tags: string[];
+};
+
+export async function getOpenTickets(): Promise<{
+  total: number;
+  rows: TicketRow[];
+}> {
+  const [issues, accounts] = await Promise.all([
+    fetchOpenIssuesLast30Days(),
+    fetchAllAccounts(),
+  ]);
+
+  const rows: TicketRow[] = [];
+  for (const issue of issues) {
+    const accountId = issue.account?.id ?? null;
+    if (!accountId) continue;
+    const acc = accounts.get(accountId);
+    if (!acc) continue;
+    if (!matchesWhitelist(acc.name)) continue;
+    rows.push({
+      id: issue.id,
+      number: issue.number ?? null,
+      title: issue.title ?? "(no title)",
+      site: acc.name,
+      module: readModule(issue),
+      assignee: issue.assignee?.email ?? null,
+      state: issue.state,
+      link: issue.link ?? null,
+      latest: issue.latest_message_time ?? issue.created_at ?? null,
+      tags: issue.tags ?? [],
+    });
+  }
+  // Sort by latest activity desc
+  rows.sort((a, b) => (b.latest ?? "").localeCompare(a.latest ?? ""));
+  return { total: rows.length, rows };
+}
+
 export async function getOpenIssuesByCustomer(): Promise<{
   total: number;
   rows: OpenIssueAggregate[];
@@ -122,17 +219,16 @@ export async function getOpenIssuesByCustomer(): Promise<{
   ]);
 
   const grouped = new Map<string, OpenIssueAggregate>();
-  let unassigned = 0;
   for (const issue of issues) {
-    if (!issue.account?.id) {
-      unassigned++;
-      continue;
-    }
-    const acc = accounts.get(issue.account!.id);
-    const key = acc ? acc.name : `Unknown · ${issue.account!.id.slice(0, 8)}`;
+    const accountId = issue.account?.id ?? null;
+    if (!accountId) continue; // skip issues with no account
+    const acc = accounts.get(accountId);
+    if (!acc) continue; // skip if we can't resolve the account name
+    if (!matchesWhitelist(acc.name)) continue; // only whitelisted customers
+    const key = acc.name;
     const cur = grouped.get(key) ?? {
       customer: key,
-      customerId: issue.account!.id,
+      customerId: accountId,
       count: 0,
       byState: {},
       latest: null,
@@ -144,5 +240,6 @@ export async function getOpenIssuesByCustomer(): Promise<{
     grouped.set(key, cur);
   }
   const rows = Array.from(grouped.values()).sort((a, b) => b.count - a.count);
-  return { total: issues.length, rows, unassigned };
+  const total = rows.reduce((s, r) => s + r.count, 0);
+  return { total, rows, unassigned: 0 };
 }
