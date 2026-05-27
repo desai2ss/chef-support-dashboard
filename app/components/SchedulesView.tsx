@@ -177,7 +177,7 @@ export default function SchedulesView() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setWeekStart(addDays(weekStart, -7))}
-            className="px-2 py-1 rounded-md border border-line bg-white hover:bg-cream text-sm"
+            className="px-2 py-1 rounded-md border border-line bg-card hover:bg-cream text-sm"
             aria-label="Previous week"
           >
             ‹
@@ -188,14 +188,14 @@ export default function SchedulesView() {
               "px-3 py-1 rounded-md border text-sm " +
               (isThisWeek
                 ? "bg-ink text-white border-ink"
-                : "bg-white border-line hover:bg-cream")
+                : "bg-card border-line hover:bg-cream")
             }
           >
             {weekLabel}
           </button>
           <button
             onClick={() => setWeekStart(addDays(weekStart, 7))}
-            className="px-2 py-1 rounded-md border border-line bg-white hover:bg-cream text-sm"
+            className="px-2 py-1 rounded-md border border-line bg-card hover:bg-cream text-sm"
             aria-label="Next week"
           >
             ›
@@ -204,7 +204,7 @@ export default function SchedulesView() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-line bg-white shadow-[0_1px_0_rgba(0,0,0,.02)]">
+      <div className="overflow-x-auto rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)]">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-muted bg-cream">
@@ -326,7 +326,7 @@ function SiteRows({
                           ? "border-blue-400 bg-blue-50 "
                           : isPast
                           ? "border-line bg-cream "
-                          : "border-line bg-white ") +
+                          : "border-line bg-card ") +
                         "hover:border-zinc-400 hover:bg-cream"
                       }
                       title={
@@ -416,7 +416,7 @@ function CellEditor({
 
   return (
     <div
-      className="absolute z-50 left-1/2 top-full mt-2 -translate-x-1/2 bg-white border border-line rounded-lg shadow-lg p-3 text-left w-64"
+      className="absolute z-50 left-1/2 top-full mt-2 -translate-x-1/2 bg-card border border-line rounded-lg shadow-lg p-3 text-left w-64"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="text-xs text-muted mb-2">
@@ -427,7 +427,7 @@ function CellEditor({
         type="number"
         value={r}
         onChange={(e) => setR(e.target.value)}
-        className="w-full bg-white border border-line rounded-md px-2 py-1 text-sm mb-2 focus:outline-none focus:border-zinc-400"
+        className="w-full bg-card border border-line rounded-md px-2 py-1 text-sm mb-2 focus:outline-none focus:border-zinc-400"
         placeholder="(default)"
       />
       <label className="block text-xs text-muted mb-1">
@@ -437,7 +437,7 @@ function CellEditor({
         type="number"
         value={t}
         onChange={(e) => setT(e.target.value)}
-        className="w-full bg-white border border-line rounded-md px-2 py-1 text-sm mb-3 focus:outline-none focus:border-zinc-400"
+        className="w-full bg-card border border-line rounded-md px-2 py-1 text-sm mb-3 focus:outline-none focus:border-zinc-400"
         placeholder="(default)"
       />
       <div className="flex justify-between items-center">
@@ -451,7 +451,7 @@ function CellEditor({
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="text-xs px-2 py-1 rounded-md border border-line bg-white hover:bg-cream"
+            className="text-xs px-2 py-1 rounded-md border border-line bg-card hover:bg-cream"
           >
             Cancel
           </button>

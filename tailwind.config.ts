@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -9,10 +10,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#1f1f1f",
-        cream: "#f7f7f5",
-        line: "#e6e4df",
-        muted: "#6b6b6b",
+        // Tokens driven by CSS variables in globals.css.
+        // Toggle `class="dark"` on <html> to switch palettes.
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        cream: "rgb(var(--cream) / <alpha-value>)",
+        card: "rgb(var(--card) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        muted: "rgb(var(--muted) / <alpha-value>)",
       },
     },
   },

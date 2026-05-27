@@ -33,10 +33,10 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 const STATE_PILL: Record<string, string> = {
-  new: "bg-emerald-900/40 text-emerald-300 border-emerald-700/40",
-  waiting_on_you: "bg-amber-900/40 text-amber-300 border-amber-700/40",
-  waiting_on_customer: "bg-blue-900/40 text-blue-300 border-blue-700/40",
-  on_hold: "bg-zinc-800 text-zinc-400 border-zinc-700",
+  new: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700/40",
+  waiting_on_you: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/40",
+  waiting_on_customer: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/40",
+  on_hold: "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
 };
 
 function tagMatch(tags: string[], needle: string): boolean {
@@ -90,14 +90,14 @@ export default function TicketsTable() {
   }
   if (!data.configured) {
     return (
-      <div className="text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded p-3 text-sm">
+      <div className="text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 rounded p-3 text-sm">
         {data.message ?? "PYLON_API_KEY not set."}
       </div>
     );
   }
   if (data.error) {
     return (
-      <div className="text-red-300 bg-red-950/40 border border-red-800/40 rounded p-3 text-sm">
+      <div className="text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/40 rounded p-3 text-sm">
         {data.error}
       </div>
     );
@@ -120,8 +120,8 @@ export default function TicketsTable() {
             className={
               "px-3 py-1.5 rounded-md text-sm border transition-colors " +
               (filter === c.key
-                ? "bg-white text-black border-white"
-                : "bg-transparent text-muted border-line hover:text-white hover:border-zinc-500")
+                ? "bg-ink text-cream border-ink"
+                : "bg-transparent text-muted border-line hover:text-ink hover:border-muted")
             }
           >
             {c.label}
@@ -147,7 +147,7 @@ export default function TicketsTable() {
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={r.id} className="border-b border-line/50 hover:bg-white/[0.02]">
+                <tr key={r.id} className="border-b border-line/50 hover:bg-cream/60">
                   <td className="py-2.5 align-top">
                     {r.link ? (
                       <a
@@ -166,7 +166,7 @@ export default function TicketsTable() {
                   <td className="py-2.5 align-top">{r.site}</td>
                   <td className="py-2.5 align-top">
                     {r.module ? (
-                      <span className="text-zinc-300">{r.module}</span>
+                      <span className="text-ink">{r.module}</span>
                     ) : (
                       <span className="text-amber-400">Untagged</span>
                     )}
@@ -178,7 +178,7 @@ export default function TicketsTable() {
                     <span
                       className={
                         "inline-block px-2 py-0.5 rounded text-xs border " +
-                        (STATE_PILL[r.state] ?? "bg-zinc-800 text-zinc-400 border-zinc-700")
+                        (STATE_PILL[r.state] ?? "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700")
                       }
                     >
                       {STATE_LABEL[r.state] ?? r.state}

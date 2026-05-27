@@ -123,7 +123,7 @@ export default function TeamView() {
   return (
     <div>
       {/* Bandwidth section */}
-      <section className="mb-6 rounded-xl border border-line bg-white shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
+      <section className="mb-6 rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
         <div className="flex justify-between items-baseline mb-4">
           <h2 className="text-base font-semibold">Team bandwidth</h2>
           <span className="text-xs text-muted">
@@ -171,7 +171,7 @@ export default function TeamView() {
       </div>
 
       {/* Currently working on */}
-      <section className="mb-6 rounded-xl border border-line bg-white shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
+      <section className="mb-6 rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
         <div className="flex justify-between items-baseline mb-3">
           <h2 className="text-base font-semibold">Currently working on</h2>
           <span className="text-xs text-muted">Click a cell to edit</span>
@@ -213,7 +213,7 @@ export default function TeamView() {
       </section>
 
       {/* Team calendar — manual entry per person per day */}
-      <section className="rounded-xl border border-line bg-white shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
+      <section className="rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
         <div className="flex justify-between items-baseline mb-3">
           <h2 className="text-base font-semibold">Team calendar — this week</h2>
           <span className="text-xs text-muted">
@@ -383,14 +383,14 @@ function WorkingRow({
                 value={draftTask}
                 onChange={(e) => setDraftTask(e.target.value)}
                 placeholder="What are they working on?"
-                className="flex-1 bg-white border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
+                className="flex-1 bg-card border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
                 autoFocus
               />
               <input
                 value={draftStatus}
                 onChange={(e) => setDraftStatus(e.target.value)}
                 placeholder="Status (optional)"
-                className="w-40 bg-white border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
+                className="w-40 bg-card border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
               />
             </div>
           </td>
@@ -398,7 +398,7 @@ function WorkingRow({
             <div className="flex gap-1 justify-end">
               <button
                 onClick={cancel}
-                className="text-xs px-2 py-1 rounded-md border border-line bg-white hover:bg-cream"
+                className="text-xs px-2 py-1 rounded-md border border-line bg-card hover:bg-cream"
               >
                 Cancel
               </button>
@@ -498,7 +498,7 @@ function CalendarRow({
                   if (e.key === "Escape") setEditingDate(null);
                 }}
                 autoFocus
-                className="w-full bg-white border border-blue-400 rounded-md px-1.5 py-1 text-xs focus:outline-none"
+                className="w-full bg-card border border-blue-400 rounded-md px-1.5 py-1 text-xs focus:outline-none"
                 placeholder="PTO, on-call, site visit…"
               />
             </td>

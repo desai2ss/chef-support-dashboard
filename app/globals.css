@@ -2,30 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens — kept in CSS variables so we can swap palettes by toggling
+ * `class="dark"` on <html>. Values are space-separated RGB so Tailwind's
+ * <alpha-value> placeholder works (see tailwind.config.ts). */
 :root {
+  --ink: 31 31 31;        /* primary text / inverse bg */
+  --cream: 247 247 245;   /* page background */
+  --card: 255 255 255;    /* card / panel background */
+  --line: 230 228 223;    /* hairline borders */
+  --muted: 107 107 107;   /* secondary text */
   color-scheme: light;
 }
 
+.dark {
+  --ink: 244 244 245;     /* zinc-100 */
+  --cream: 9 9 11;        /* zinc-950 */
+  --card: 24 24 27;       /* zinc-900 */
+  --line: 39 39 42;       /* zinc-800 */
+  --muted: 161 161 170;   /* zinc-400 */
+  color-scheme: dark;
+}
+
 html, body {
-  background: #f7f7f5;
-  color: #1f1f1f;
+  background: rgb(var(--cream));
+  color: rgb(var(--ink));
 }
 
 .pill { @apply inline-block px-2 py-0.5 rounded-full text-[11px] font-medium; }
-.pill-live { @apply bg-green-100 text-green-800; }
-.pill-pending { @apply bg-amber-100 text-amber-800; }
-.pill-down { @apply bg-red-100 text-red-800; }
-.pill-ontrack { @apply bg-green-100 text-green-800; }
-.pill-atrisk { @apply bg-amber-100 text-amber-800; }
-.pill-blocked { @apply bg-purple-100 text-purple-800; }
-.pill-readonly { @apply bg-gray-100 text-gray-700; }
+.pill-live      { @apply bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300; }
+.pill-pending   { @apply bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-300; }
+.pill-down      { @apply bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300; }
+.pill-ontrack   { @apply bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-300; }
+.pill-atrisk    { @apply bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-300; }
+.pill-blocked   { @apply bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300; }
+.pill-readonly  { @apply bg-gray-100   text-gray-700   dark:bg-zinc-800      dark:text-zinc-300; }
 
-.card { @apply bg-white border border-line rounded-xl p-5 shadow-[0_1px_0_rgba(0,0,0,.02)]; }
-.stat { @apply bg-white border border-line rounded-xl p-4; }
-.stat-label { @apply text-[11px] text-muted uppercase tracking-wider; }
-.stat-value { @apply text-2xl font-semibold mt-0.5; }
-.stat-delta { @apply text-[11px] text-muted mt-0.5; }
-.input { @apply border border-line rounded-md px-2 py-1.5 text-sm bg-white w-full; }
-.btn { @apply bg-ink text-white rounded-md px-3 py-1.5 text-xs font-medium; }
-.btn-secondary { @apply bg-white text-ink border border-line rounded-md px-3 py-1.5 text-xs font-medium; }
-.btn-danger { @apply bg-white text-red-700 border border-red-200 rounded-md px-2 py-1 text-xs font-medium; }
+.card        { @apply bg-card border border-line rounded-xl p-5 shadow-[0_1px_0_rgba(0,0,0,.02)] dark:shadow-none; }
+.stat        { @apply bg-card border border-line rounded-xl p-4; }
+.stat-label  { @apply text-[11px] text-muted uppercase tracking-wider; }
+.stat-value  { @apply text-2xl font-semibold mt-0.5; }
+.stat-delta  { @apply text-[11px] text-muted mt-0.5; }
+.input       { @apply border border-line rounded-md px-2 py-1.5 text-sm bg-card text-ink w-full; }
+.btn         { @apply bg-ink text-cream rounded-md px-3 py-1.5 text-xs font-medium hover:opacity-90; }
+.btn-secondary { @apply bg-card text-ink border border-line rounded-md px-3 py-1.5 text-xs font-medium hover:bg-cream; }
+.btn-danger  { @apply bg-card text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/50 rounded-md px-2 py-1 text-xs font-medium; }

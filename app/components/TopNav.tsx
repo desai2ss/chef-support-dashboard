@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ThemeToggle from "./ThemeToggle";
 
 const TABS: { href: string; label: string; enabled: boolean }[] = [
   { href: "/", label: "Fleet", enabled: true },
@@ -14,38 +15,41 @@ const TABS: { href: string; label: string; enabled: boolean }[] = [
 export default function TopNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex gap-1 mb-5">
-      {TABS.map((t) => {
-        const active = pathname === t.href;
-        const base =
-          "px-3 py-1.5 rounded-md text-sm font-medium transition-colors";
-        if (!t.enabled) {
+    <nav className="flex items-center justify-between mb-5">
+      <div className="flex gap-1">
+        {TABS.map((t) => {
+          const active = pathname === t.href;
+          const base =
+            "px-3 py-1.5 rounded-md text-sm font-medium transition-colors";
+          if (!t.enabled) {
+            return (
+              <span
+                key={t.href}
+                className={base + " text-muted cursor-not-allowed opacity-50"}
+                title="Coming soon"
+              >
+                {t.label}
+              </span>
+            );
+          }
           return (
-            <span
+            <Link
               key={t.href}
-              className={base + " text-muted cursor-not-allowed opacity-50"}
-              title="Coming soon"
+              href={t.href}
+              className={
+                base +
+                " " +
+                (active
+                  ? "bg-ink text-cream"
+                  : "text-muted hover:text-ink hover:bg-card")
+              }
             >
               {t.label}
-            </span>
+            </Link>
           );
-        }
-        return (
-          <Link
-            key={t.href}
-            href={t.href}
-            className={
-              base +
-              " " +
-              (active
-                ? "bg-white text-black"
-                : "text-muted hover:text-white hover:bg-white/5")
-            }
-          >
-            {t.label}
-          </Link>
-        );
-      })}
+        })}
+      </div>
+      <ThemeToggle />
     </nav>
   );
 }

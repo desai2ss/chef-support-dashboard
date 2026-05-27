@@ -44,7 +44,7 @@ type TicketsApi = {
 };
 
 function utilColor(pct: number | null): string {
-  if (pct === null) return "bg-zinc-700";
+  if (pct === null) return "bg-line";
   if (pct >= 80) return "bg-emerald-500";
   if (pct >= 60) return "bg-amber-500";
   return "bg-rose-500";
@@ -79,14 +79,14 @@ export default function FleetView() {
   if (!data) return <div className="text-muted text-sm">Loading fleet…</div>;
   if (!data.configured) {
     return (
-      <div className="text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded p-3 text-sm">
+      <div className="text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 rounded p-3 text-sm">
         {data.message ?? "BigQuery not configured."}
       </div>
     );
   }
   if (data.error) {
     return (
-      <div className="text-red-300 bg-red-950/40 border border-red-800/40 rounded p-3 text-sm">
+      <div className="text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/40 rounded p-3 text-sm">
         {data.error}
       </div>
     );
@@ -139,9 +139,9 @@ export default function FleetView() {
 
       {/* Untagged tickets banner */}
       {untaggedTickets && untaggedTickets > 0 ? (
-        <div className="mb-5 rounded border border-amber-900/40 bg-amber-950/30 px-4 py-3 flex justify-between items-center">
+        <div className="mb-5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex justify-between items-center">
           <div className="text-sm">
-            <span className="font-semibold text-amber-300">
+            <span className="font-semibold text-amber-800 dark:text-amber-300">
               {untaggedTickets} ticket{untaggedTickets === 1 ? "" : "s"}
             </span>{" "}
             <span className="text-muted">
@@ -151,7 +151,7 @@ export default function FleetView() {
           </div>
           <a
             href="/tickets"
-            className="text-amber-400 text-sm hover:underline whitespace-nowrap"
+            className="text-amber-700 dark:text-amber-400 text-sm hover:underline whitespace-nowrap"
           >
             Review untagged →
           </a>
@@ -202,9 +202,9 @@ function Kpi({
       ? "text-rose-400"
       : tone === "info"
       ? "text-blue-400"
-      : "text-white";
+      : "text-ink";
   return (
-    <div className="rounded-lg border border-line bg-zinc-950/60 p-4">
+    <div className="rounded-lg border border-line bg-card p-4">
       <div className="text-[10px] uppercase tracking-wider text-muted">
         {label}
       </div>
@@ -218,7 +218,7 @@ function Kpi({
 
 function SiteCard({ site }: { site: Site }) {
   return (
-    <section className="mb-5 rounded-lg border border-line bg-zinc-950/40 p-4">
+    <section className="mb-5 rounded-lg border border-line bg-card p-4">
       <div className="flex justify-between items-baseline mb-4">
         <div>
           <div className="text-lg font-semibold">{site.site}</div>
@@ -251,9 +251,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function RobotCard({ r }: { r: Robot }) {
   const pct = r.utilPct;
-  const onlineDot = r.onboarded ? "bg-emerald-500" : "bg-zinc-600";
+  const onlineDot = r.onboarded ? "bg-emerald-500" : "bg-line";
   return (
-    <div className="rounded border border-line bg-zinc-900/60 p-3">
+    <div className="rounded border border-line bg-cream p-3">
       <div className="flex justify-between items-center mb-3">
         <div className="text-sm">
           <span className="text-muted">SN{r.sn}</span>{" "}
@@ -262,7 +262,7 @@ function RobotCard({ r }: { r: Robot }) {
         <span className={"inline-block w-2 h-2 rounded-full " + onlineDot} />
       </div>
       <div className="mb-2">
-        <div className="h-2 bg-zinc-800 rounded overflow-hidden">
+        <div className="h-2 bg-line rounded overflow-hidden">
           <div
             className={"h-full " + utilColor(pct)}
             style={{ width: `${Math.min(100, Math.max(0, pct ?? 0))}%` }}
