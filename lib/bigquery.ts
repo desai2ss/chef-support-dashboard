@@ -153,3 +153,109 @@ export function summarize(rows: BQDailyRow[]) {
   const pstops = rows.reduce((s, r) => s + r.pstops, 0);
   return { avgUptime, totalDowntime, totalThroughput, missedBowls, pstops };
 }
+
+// ---------------------------------------------------------------------------
+// Fleet utilization — queries chef-robotics-infra.coremetrics_staging.sessions_v0
+// to compute per-robot per-day production utilization.
+//
+// Env needed (uses the same SA as fetchDailyMetrics above, plus):
+//   BQ_SESSIONS_TABLE - defaults to `chef-robotics-infra.coremetrics_staging.sessions_v0`
+// ---------------------------------------------------------------------------
+
+export type FleetRobotRow = {
+  hostname: string;
+  customer_id: string;
+  prod_date: string; // YYYY-MM-DD
+  build_version: string | null;
+  production_hours: number;
+  total_operating_hours: number;
+  module_util_pct: number; // 0..100
+};
+
+export function fleetConfigured() {
+  // sessions_v0 lives in the same chef-robotics-infra project as the metrics
+  // table, so the existing GCP_SA_KEY_BASE64 + GCP_PROJECT_ID env vars are enough.
+  return !!(process.env.GCP_SA_KEY_BASE64 && process.env.GCP_PROJECT_ID);
+}
+
+export async function fetchFleetUtilization(daysBack = 7): Promise<FleetRobotRow[]> {
+  const project = process.env.GCP_PROJECT_ID!;
+  const table =
+    process.env.BQ_SESSIONS_TABLE ||
+    "chef-robotics-infra.coremetrics_staging.sessions_v0";
+  const token = await getAccessToken();
+  const sql = `
+    WITH session_durations AS (
+      SELECT
+        DATE(start_time) AS prod_date,
+        hostname,
+        customer_id,
+        label,
+        sw_release_version,
+        TIMESTAMP_DIFF(end_time, start_time, SECOND) AS duration_sec
+      FROM \`${table}\`
+      WHERE start_time >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL @days DAY)
+        AND end_time IS NOT NULL
+        AND end_time > start_time
+    )
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', prod_date) AS prod_date,
+      hostname,
+      customer_id,
+      ANY_VALUE(sw_release_version) AS build_version,
+      SUM(IF(label = 'PRODUCTION', duration_sec, 0)) / 3600.0 AS production_hours,
+      SUM(duration_sec) / 3600.0 AS total_operating_hours,
+      SAFE_DIVIDE(
+        SUM(IF(label = 'PRODUCTION', duration_sec, 0)),
+        SUM(duration_sec)
+      ) * 100.0 AS module_util_pct
+    FROM session_durations
+    GROUP BY prod_date, hostname, customer_id
+    ORDER BY prod_date DESC, customer_id, hostname
+  `;
+  const res = await fetch(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: sql,
+        useLegacySql: false,
+        queryParameters: [
+          {
+            name: "days",
+            parameterType: { type: "INT64" },
+            parameterValue: { value: String(daysBack) },
+          },
+        ],
+      }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`BigQuery ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    schema?: { fields: { name: string }[] };
+    rows?: { f: { v: string }[] }[];
+  };
+  const fields = data.schema?.fields.map((f) => f.name) ?? [];
+  return (data.rows ?? []).map((r) => {
+    const obj: any = {};
+    fields.forEach((name, i) => {
+      obj[name] = r.f[i]?.v;
+    });
+    return {
+      hostname: String(obj.hostname ?? ""),
+      customer_id: String(obj.customer_id ?? ""),
+      prod_date: String(obj.prod_date ?? ""),
+      build_version: obj.build_version ? String(obj.build_version) : null,
+      production_hours: Number(obj.production_hours ?? 0),
+      total_operating_hours: Number(obj.total_operating_hours ?? 0),
+      module_util_pct: Number(obj.module_util_pct ?? 0),
+    } satisfies FleetRobotRow;
+  });
+}

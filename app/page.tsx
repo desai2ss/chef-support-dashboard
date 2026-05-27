@@ -1,5 +1,5 @@
 import { auth, signOut } from "@/auth";
-import Dashboard from "./components/Dashboard";
+import FleetView from "./components/FleetView";
 import TopNav from "./components/TopNav";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export default async function Home() {
 
       <TopNav />
 
-      <Dashboard editor={editor} />
+      <FleetView />
     </main>
   );
 }
