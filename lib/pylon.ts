@@ -112,6 +112,36 @@ type AccountsPage = {
   pagination?: { cursor?: string; has_next_page?: boolean };
 };
 
+// Fetch a single issue by number using GET /issues/{number}. For debug.
+export async function fetchRawIssueByNumber(num: string): Promise<any> {
+  const key = process.env.PYLON_API_KEY;
+  if (!key) throw new Error("PYLON_API_KEY is not set");
+  const res = await fetch(`${BASE}/issues/${num}`, {
+    headers: headers(),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Pylon /issues/${num}: ${res.status} ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  return json.data ?? json;
+}
+
+// Search issues by filter. POST /issues/search. For debug.
+export async function searchIssuesRaw(body: any): Promise<any> {
+  const key = process.env.PYLON_API_KEY;
+  if (!key) throw new Error("PYLON_API_KEY is not set");
+  const res = await fetch(`${BASE}/issues/search`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const text = await res.text();
+  return { status: res.status, body: text.slice(0, 2000) };
+}
+
 // Returns the raw first issue from the API (no parsing/filtering). For debug only.
 export async function fetchRawSampleIssue(): Promise<any> {
   const end = new Date();
