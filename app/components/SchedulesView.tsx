@@ -61,13 +61,11 @@ export default function SchedulesView() {
   }, []);
   const [weekStart, setWeekStart] = useState<Date>(() => mondayOf(new Date()));
   const [overrides, setOverrides] = useState<Overrides>({});
-  // Edit popover state — which cell is being edited.
   const [editing, setEditing] = useState<{
     lineId: string;
     date: string;
   } | null>(null);
 
-  // Load overrides from localStorage on mount.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -77,7 +75,6 @@ export default function SchedulesView() {
     }
   }, []);
 
-  // Save overrides to localStorage on change.
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
@@ -91,7 +88,6 @@ export default function SchedulesView() {
     [weekStart]
   );
 
-  // Helper: get effective robot/total for a line + day.
   function cellValues(line: LineConfig, date: Date) {
     const key = `${line.id}|${fmtDate(date)}`;
     const ov = overrides[key];
@@ -155,10 +151,10 @@ export default function SchedulesView() {
 
   return (
     <div>
-      {/* Session-only banner */}
-      <div className="mb-5 rounded border border-amber-900/40 bg-amber-950/30 px-4 py-3 flex gap-3 items-start">
-        <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
-        <div className="text-sm text-amber-300/90">
+      {/* Session-only banner — light amber to match design tokens */}
+      <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 items-start">
+        <span className="text-amber-700 text-base leading-none mt-0.5">⚠</span>
+        <div className="text-sm text-amber-900">
           Schedule edits persist in this browser session only. SQLite schedule
           store hasn&apos;t been wired yet — closing the tab resets any overrides.
         </div>
@@ -172,16 +168,16 @@ export default function SchedulesView() {
           </h2>
           <div className="text-xs text-muted mt-1 max-w-3xl">
             Each cell shows{" "}
-            <span className="text-white font-medium">robot expected</span>{" "}
+            <span className="text-ink font-medium">robot expected</span>{" "}
             (our commitment) over{" "}
-            <span className="text-white font-medium">total line expected</span>{" "}
+            <span className="text-ink font-medium">total line expected</span>{" "}
             (robot + human). Click to override.
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setWeekStart(addDays(weekStart, -7))}
-            className="px-2 py-1 rounded border border-line hover:border-zinc-500 text-sm"
+            className="px-2 py-1 rounded-md border border-line bg-white hover:bg-cream text-sm"
             aria-label="Previous week"
           >
             ‹
@@ -189,17 +185,17 @@ export default function SchedulesView() {
           <button
             onClick={() => setWeekStart(mondayOf(today))}
             className={
-              "px-3 py-1 rounded border text-sm " +
+              "px-3 py-1 rounded-md border text-sm " +
               (isThisWeek
-                ? "bg-white text-black border-white"
-                : "border-line hover:border-zinc-500")
+                ? "bg-ink text-white border-ink"
+                : "bg-white border-line hover:bg-cream")
             }
           >
             {weekLabel}
           </button>
           <button
             onClick={() => setWeekStart(addDays(weekStart, 7))}
-            className="px-2 py-1 rounded border border-line hover:border-zinc-500 text-sm"
+            className="px-2 py-1 rounded-md border border-line bg-white hover:bg-cream text-sm"
             aria-label="Next week"
           >
             ›
@@ -208,19 +204,19 @@ export default function SchedulesView() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line">
+      <div className="overflow-x-auto rounded-xl border border-line bg-white shadow-[0_1px_0_rgba(0,0,0,.02)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-muted bg-zinc-950/40">
-              <th className="text-left py-2.5 px-3 w-44">Line</th>
+            <tr className="text-[10px] uppercase tracking-wider text-muted bg-cream">
+              <th className="text-left py-2.5 px-3 w-44 font-medium">Line</th>
               {days.map((d) => {
                 const isToday = fmtDate(d) === fmtDate(today);
                 return (
                   <th
                     key={fmtDate(d)}
                     className={
-                      "text-center py-2.5 px-2 w-24 " +
-                      (isToday ? "text-blue-300" : "")
+                      "text-center py-2.5 px-2 w-24 font-medium " +
+                      (isToday ? "text-blue-700" : "")
                     }
                   >
                     <div>{DAY_NAMES[d.getDay()]}</div>
@@ -230,14 +226,14 @@ export default function SchedulesView() {
                   </th>
                 );
               })}
-              <th className="text-right py-2.5 px-3 w-32">
+              <th className="text-right py-2.5 px-3 w-32 font-medium">
                 Week (robot / total)
               </th>
             </tr>
           </thead>
           <tbody>
             {grouped.map(({ site, lines }) => (
-              <FragmentSite
+              <SiteRows
                 key={site}
                 site={site}
                 lines={lines}
@@ -258,7 +254,7 @@ export default function SchedulesView() {
   );
 }
 
-function FragmentSite({
+function SiteRows({
   site,
   lines,
   days,
@@ -292,9 +288,9 @@ function FragmentSite({
 }) {
   return (
     <>
-      <tr className="bg-zinc-950/30 border-t border-line">
+      <tr className="bg-cream border-t border-line">
         <td colSpan={9} className="py-2 px-3">
-          <span className="font-semibold">{site}</span>
+          <span className="font-semibold text-ink">{site}</span>
           <span className="text-xs text-muted ml-2">
             {lines.length} lines · {lines[0].operatingHours}
           </span>
@@ -303,8 +299,8 @@ function FragmentSite({
       {lines.map((line) => {
         const wk = weekTotals(line);
         return (
-          <tr key={line.id} className="border-t border-line/50">
-            <td className="py-2 px-3 text-zinc-300">{line.lineName}</td>
+          <tr key={line.id} className="border-t border-line hover:bg-cream/60">
+            <td className="py-2 px-3 text-ink">{line.lineName}</td>
             {days.map((d) => {
               const date = fmtDate(d);
               const { robot, total, hasOverride } = cellValues(line, d);
@@ -314,7 +310,7 @@ function FragmentSite({
                 editing?.lineId === line.id && editing?.date === date;
               const blank = robot == null && total == null;
               return (
-                <td key={date} className="py-1 px-1 text-center align-middle">
+                <td key={date} className="relative py-1 px-1 text-center align-middle">
                   {blank ? (
                     <div className="text-muted text-base">—</div>
                   ) : (
@@ -325,16 +321,17 @@ function FragmentSite({
                         )
                       }
                       className={
-                        "relative inline-flex flex-col items-center justify-center w-20 py-1 rounded border " +
+                        "relative inline-flex flex-col items-center justify-center w-20 py-1 rounded-md border transition-colors " +
                         (isToday
-                          ? "border-blue-500/70 bg-blue-950/30 "
-                          : "border-line bg-zinc-950/40 ") +
-                        (isPast ? "opacity-70 " : "") +
-                        "hover:border-zinc-500"
+                          ? "border-blue-400 bg-blue-50 "
+                          : isPast
+                          ? "border-line bg-cream "
+                          : "border-line bg-white ") +
+                        "hover:border-zinc-400 hover:bg-cream"
                       }
                       title={
                         isPast
-                          ? `Past day — click to override anyway`
+                          ? "Past day — click to override anyway"
                           : "Click to override"
                       }
                     >
@@ -343,14 +340,14 @@ function FragmentSite({
                           🔒
                         </span>
                       ) : null}
-                      <span className="text-sm leading-tight font-medium">
+                      <span className="text-sm leading-tight font-medium text-ink">
                         {robot != null ? fmtNum(robot) : "—"}
                       </span>
                       <span className="text-[10px] text-muted leading-tight">
                         / {total != null ? fmtNum(total) : "—"}
                       </span>
                       {hasOverride ? (
-                        <span className="absolute -top-1 -right-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-400" />
+                        <span className="absolute -top-1 -right-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-500" />
                       ) : null}
                     </button>
                   )}
@@ -375,7 +372,7 @@ function FragmentSite({
               );
             })}
             <td className="py-2 px-3 text-right">
-              <div className="text-sm">{wk.robot.toLocaleString()}</div>
+              <div className="text-sm text-ink">{wk.robot.toLocaleString()}</div>
               <div className="text-[10px] text-muted">
                 / {wk.total.toLocaleString()}
               </div>
@@ -419,19 +416,18 @@ function CellEditor({
 
   return (
     <div
-      className="absolute z-50 mt-1 -translate-x-1/4 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-3 text-left w-64"
+      className="absolute z-50 left-1/2 top-full mt-2 -translate-x-1/2 bg-white border border-line rounded-lg shadow-lg p-3 text-left w-64"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="text-xs text-muted mb-2">
-        <span className="text-zinc-300 font-medium">{line.lineName}</span> ·{" "}
-        {date}
+        <span className="text-ink font-medium">{line.lineName}</span> · {date}
       </div>
       <label className="block text-xs text-muted mb-1">Robot expected</label>
       <input
         type="number"
         value={r}
         onChange={(e) => setR(e.target.value)}
-        className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm mb-2"
+        className="w-full bg-white border border-line rounded-md px-2 py-1 text-sm mb-2 focus:outline-none focus:border-zinc-400"
         placeholder="(default)"
       />
       <label className="block text-xs text-muted mb-1">
@@ -441,27 +437,27 @@ function CellEditor({
         type="number"
         value={t}
         onChange={(e) => setT(e.target.value)}
-        className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm mb-3"
+        className="w-full bg-white border border-line rounded-md px-2 py-1 text-sm mb-3 focus:outline-none focus:border-zinc-400"
         placeholder="(default)"
       />
       <div className="flex justify-between items-center">
         <button
           onClick={onClear}
           disabled={!hasOverride}
-          className="text-xs text-amber-400 hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
+          className="text-xs text-amber-700 hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Reset to default
         </button>
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="text-xs px-2 py-1 rounded border border-zinc-700 hover:border-zinc-500"
+            className="text-xs px-2 py-1 rounded-md border border-line bg-white hover:bg-cream"
           >
             Cancel
           </button>
           <button
             onClick={save}
-            className="text-xs px-2 py-1 rounded bg-white text-black font-medium"
+            className="text-xs px-3 py-1 rounded-md bg-ink text-white font-medium hover:opacity-90"
           >
             Save
           </button>
