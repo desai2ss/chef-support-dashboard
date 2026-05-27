@@ -294,10 +294,28 @@ async function enrichIssuesWithAssignee(
   return out;
 }
 
+// In-memory cache for the enriched ticket list. The expensive part is the
+// N+1 fetches done by enrichIssuesWithAssignee (~3-5s for 41 tickets). The
+// Tickets, Team, and Sites tabs all consume this; without caching each page
+// load pays the full cost. 60s TTL is a reasonable balance between freshness
+// and snappy navigation.
+const TICKETS_CACHE_TTL_MS = 60 * 1000;
+let ticketsCache: {
+  ts: number;
+  data: { total: number; rows: TicketRow[] };
+} | null = null;
+
+export function invalidateTicketsCache() {
+  ticketsCache = null;
+}
+
 export async function getOpenTickets(): Promise<{
   total: number;
   rows: TicketRow[];
 }> {
+  if (ticketsCache && Date.now() - ticketsCache.ts < TICKETS_CACHE_TTL_MS) {
+    return ticketsCache.data;
+  }
   const [issuesRaw, accounts, users] = await Promise.all([
     fetchOpenIssuesLast30Days(),
     fetchAllAccounts(),
@@ -335,7 +353,9 @@ export async function getOpenTickets(): Promise<{
   }
   // Sort by latest activity desc
   rows.sort((a, b) => (b.latest ?? "").localeCompare(a.latest ?? ""));
-  return { total: rows.length, rows };
+  const result = { total: rows.length, rows };
+  ticketsCache = { ts: Date.now(), data: result };
+  return result;
 }
 
 export async function getOpenIssuesByCustomer(): Promise<{
