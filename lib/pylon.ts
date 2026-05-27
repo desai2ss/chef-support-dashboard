@@ -112,6 +112,38 @@ type AccountsPage = {
   pagination?: { cursor?: string; has_next_page?: boolean };
 };
 
+// Returns the raw first issue from the API (no parsing/filtering). For debug only.
+export async function fetchRawSampleIssue(): Promise<any> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const resp = await pylonGet<any>("/issues", {
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    limit: "1",
+  });
+  const list = resp.issues ?? resp.data ?? [];
+  return list[0] ?? null;
+}
+
+// Fetches all users from Pylon. Used to resolve assignee.id -> email if the
+// list /issues response doesn't expand assignee details.
+export async function fetchAllUsers(): Promise<Map<string, { id: string; email?: string; name?: string }>> {
+  const out = new Map<string, { id: string; email?: string; name?: string }>();
+  let cursor: string | undefined = undefined;
+  for (let page = 0; page < 10; page++) {
+    const resp: any = await pylonGet<any>("/users", { limit: "100", cursor });
+    const users: any[] = resp.users ?? resp.data ?? [];
+    for (const u of users) {
+      out.set(u.id, { id: u.id, email: u.email, name: u.name });
+    }
+    const nextCursor: string | undefined = resp.cursor ?? resp.pagination?.cursor;
+    const hasNext: boolean | undefined = resp.has_next_page ?? resp.pagination?.has_next_page;
+    if (!hasNext || !nextCursor) break;
+    cursor = nextCursor;
+  }
+  return out;
+}
+
 export async function fetchOpenIssuesLast30Days(): Promise<PylonIssue[]> {
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
