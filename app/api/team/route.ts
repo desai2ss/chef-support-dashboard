@@ -80,7 +80,24 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ configured: true, members });
+    // Debug: what emails / ids did we see on tickets vs what we configured?
+    const allAssignees = new Map<string, number>();
+    for (const r of rows) {
+      const k = r.assignee?.toLowerCase() ?? "(no assignee)";
+      allAssignees.set(k, (allAssignees.get(k) ?? 0) + 1);
+    }
+    const debug = {
+      totalTickets: rows.length,
+      uniqueAssigneesOnTickets: Array.from(allAssignees.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([email, count]) => ({ email, count })),
+      configuredTeamEmails: TEAM.map((m) => ({
+        name: m.name,
+        configured: m.pylonEmail,
+      })),
+    };
+
+    return NextResponse.json({ configured: true, members, _debug: debug });
   } catch (e: any) {
     return NextResponse.json(
       {
