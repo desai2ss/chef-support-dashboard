@@ -29,7 +29,7 @@ export const TEAM: TeamMember[] = [
     id: "daniela-guerra",
     name: "Daniela Guerra",
     initials: "DG",
-    pylonEmail: "dani@chefrobotics.ai",
+    pylonEmail: "daniela@chefrobotics.ai",
     colorClass: "bg-emerald-500",
   },
   {
