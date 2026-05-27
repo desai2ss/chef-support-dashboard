@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, jsonb, pgEnum, primaryKey } from "drizzle-orm/pg-core";
 
 export const moduleStatus = pgEnum("module_status", [
   "on-track",
@@ -43,8 +43,27 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Per-cell schedule overrides. One row per (line_id, date). Defaults from
+// schedules-config.ts apply for any cell without a row here.
+export const scheduleOverrides = pgTable(
+  "schedule_overrides",
+  {
+    lineId: text("line_id").notNull(),
+    date: text("date").notNull(), // YYYY-MM-DD
+    robot: integer("robot"),
+    total: integer("total"),
+    updatedBy: text("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.lineId, t.date] }),
+  })
+);
+
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 export type Module = typeof modules.$inferSelect;
 export type NewModule = typeof modules.$inferInsert;
 export type DailyNote = typeof dailyNotes.$inferSelect;
+export type ScheduleOverride = typeof scheduleOverrides.$inferSelect;
+export type NewScheduleOverride = typeof scheduleOverrides.$inferInsert;

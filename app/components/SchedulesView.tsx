@@ -7,12 +7,11 @@ import {
   linesGroupedBySite,
 } from "@/lib/schedules-config";
 
-const STORAGE_KEY = "chef-support-schedule-overrides-v1";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type Overrides = Record<
   string,
-  { robot?: number; total?: number } | undefined
+  { robot?: number | null; total?: number | null } | undefined
 >;
 
 // YYYY-MM-DD in local time.
@@ -66,22 +65,57 @@ export default function SchedulesView() {
     date: string;
   } | null>(null);
 
+  // Fetch all overrides from the DB on mount. They're shared across the team
+  // and persist via Neon Postgres.
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setOverrides(JSON.parse(raw));
-    } catch {
-      // ignore
-    }
+    let alive = true;
+    fetch("/api/schedules", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        if (j.error) {
+          setLoadError(j.error);
+          return;
+        }
+        const next: Overrides = {};
+        for (const row of j.overrides ?? []) {
+          const key = `${row.lineId}|${row.date}`;
+          next[key] = { robot: row.robot, total: row.total };
+        }
+        setOverrides(next);
+      })
+      .catch((e) => alive && setLoadError(String(e)));
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  useEffect(() => {
+  // Server-side save helper. Returns true on success.
+  async function persistCell(
+    lineId: string,
+    date: string,
+    robot: number | null,
+    total: number | null
+  ): Promise<boolean> {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
-    } catch {
-      // ignore
+      const res = await fetch("/api/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lineId, date, robot, total }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setLoadError(j.error ?? `Save failed (${res.status})`);
+        return false;
+      }
+      setLoadError(null);
+      return true;
+    } catch (e: any) {
+      setLoadError(e?.message ?? "Network error");
+      return false;
     }
-  }, [overrides]);
+  }
 
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -117,48 +151,53 @@ export default function SchedulesView() {
   )}`;
   const grouped = linesGroupedBySite();
 
-  function applyOverride(
+  // Save a full cell (both robot + total). Optimistically updates UI then
+  // persists to DB. If the save fails, reverts the optimistic change.
+  async function saveCell(
     lineId: string,
     date: string,
-    field: "robot" | "total",
-    value: number | undefined
+    robot: number | null,
+    total: number | null
   ) {
     const key = `${lineId}|${date}`;
+    const prevValue = overrides[key];
+    // Optimistic update
     setOverrides((prev) => {
-      const cur = { ...(prev[key] ?? {}) };
-      if (value === undefined) {
-        delete (cur as any)[field];
-      } else {
-        cur[field] = value;
-      }
-      const isEmpty =
-        cur.robot === undefined && cur.total === undefined;
       const next = { ...prev };
-      if (isEmpty) delete next[key];
-      else next[key] = cur;
+      if (robot === null && total === null) {
+        delete next[key];
+      } else {
+        next[key] = { robot, total };
+      }
       return next;
     });
+    const ok = await persistCell(lineId, date, robot, total);
+    if (!ok) {
+      // revert
+      setOverrides((prev) => {
+        const next = { ...prev };
+        if (prevValue === undefined) delete next[key];
+        else next[key] = prevValue;
+        return next;
+      });
+    }
   }
 
-  function clearOverride(lineId: string, date: string) {
-    const key = `${lineId}|${date}`;
-    setOverrides((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
+  async function clearCell(lineId: string, date: string) {
+    await saveCell(lineId, date, null, null);
   }
 
   return (
     <div>
-      {/* Session-only banner — light amber to match design tokens */}
-      <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 items-start">
-        <span className="text-amber-700 text-base leading-none mt-0.5">⚠</span>
-        <div className="text-sm text-amber-900">
-          Schedule edits persist in this browser session only. SQLite schedule
-          store hasn&apos;t been wired yet — closing the tab resets any overrides.
+      {/* Load / save error banner */}
+      {loadError ? (
+        <div className="mb-5 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex gap-3 items-start">
+          <span className="text-red-700 dark:text-red-300 text-base leading-none mt-0.5">⚠</span>
+          <div className="text-sm text-red-900 dark:text-red-300">
+            {loadError}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Section title + week nav */}
       <div className="flex justify-between items-end mb-3 flex-wrap gap-3">
@@ -243,8 +282,8 @@ export default function SchedulesView() {
                 weekTotals={weekTotals}
                 editing={editing}
                 setEditing={setEditing}
-                applyOverride={applyOverride}
-                clearOverride={clearOverride}
+                saveCell={saveCell}
+                clearCell={clearCell}
               />
             ))}
           </tbody>
@@ -263,8 +302,8 @@ function SiteRows({
   weekTotals,
   editing,
   setEditing,
-  applyOverride,
-  clearOverride,
+  saveCell,
+  clearCell,
 }: {
   site: string;
   lines: LineConfig[];
@@ -278,13 +317,13 @@ function SiteRows({
   weekTotals: (line: LineConfig) => { robot: number; total: number };
   editing: { lineId: string; date: string } | null;
   setEditing: (s: { lineId: string; date: string } | null) => void;
-  applyOverride: (
+  saveCell: (
     lineId: string,
     date: string,
-    field: "robot" | "total",
-    value: number | undefined
-  ) => void;
-  clearOverride: (lineId: string, date: string) => void;
+    robot: number | null,
+    total: number | null
+  ) => Promise<void>;
+  clearCell: (lineId: string, date: string) => Promise<void>;
 }) {
   return (
     <>
@@ -364,11 +403,12 @@ function SiteRows({
                       robot={robot ?? null}
                       total={total ?? null}
                       onClose={() => setEditing(null)}
-                      onApply={(field, value) =>
-                        applyOverride(line.id, date, field, value)
-                      }
-                      onClear={() => {
-                        clearOverride(line.id, date);
+                      onSave={async (r, t) => {
+                        await saveCell(line.id, date, r, t);
+                        setEditing(null);
+                      }}
+                      onClear={async () => {
+                        await clearCell(line.id, date);
                         setEditing(null);
                       }}
                       hasOverride={hasOverride}
@@ -399,7 +439,7 @@ function CellEditor({
   date,
   robot,
   total,
-  onApply,
+  onSave,
   onClear,
   onClose,
   hasOverride,
@@ -408,27 +448,36 @@ function CellEditor({
   date: string;
   robot: number | null;
   total: number | null;
-  onApply: (field: "robot" | "total", value: number | undefined) => void;
-  onClear: () => void;
+  onSave: (robot: number | null, total: number | null) => void | Promise<void>;
+  onClear: () => void | Promise<void>;
   onClose: () => void;
   hasOverride: boolean;
 }) {
   const [r, setR] = useState<string>(robot != null ? String(robot) : "");
   const [t, setT] = useState<string>(total != null ? String(total) : "");
+  const [saving, setSaving] = useState(false);
 
   const isRobots = line.metricType === "robots";
 
-  function save() {
-    const rn = r === "" ? undefined : Number(r);
-    if (rn === undefined || Number.isFinite(rn)) onApply("robot", rn);
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    const rn = r === "" ? null : Number(r);
+    let tn: number | null;
     if (isRobots) {
       // For robot-count lines, keep total in sync with robot.
-      if (rn === undefined || Number.isFinite(rn)) onApply("total", rn);
+      tn = rn;
     } else {
-      const tn = t === "" ? undefined : Number(t);
-      if (tn === undefined || Number.isFinite(tn)) onApply("total", tn);
+      tn = t === "" ? null : Number(t);
     }
-    onClose();
+    const rOk = rn === null || Number.isFinite(rn);
+    const tOk = tn === null || Number.isFinite(tn);
+    if (!rOk || !tOk) {
+      setSaving(false);
+      return;
+    }
+    await onSave(rn, tn);
+    setSaving(false);
   }
 
   return (
@@ -480,9 +529,10 @@ function CellEditor({
           </button>
           <button
             onClick={save}
-            className="text-xs px-3 py-1 rounded-md bg-ink text-cream font-medium hover:opacity-90"
+            disabled={saving}
+            className="text-xs px-3 py-1 rounded-md bg-ink text-cream font-medium hover:opacity-90 disabled:opacity-50"
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
