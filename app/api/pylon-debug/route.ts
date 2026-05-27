@@ -49,6 +49,9 @@ export async function GET(req: Request) {
         assignee: (singleIssue as any)?.assignee ?? null,
         state: (singleIssue as any)?.state ?? null,
         title: (singleIssue as any)?.title ?? null,
+        custom_fields: (singleIssue as any)?.custom_fields ?? null,
+        tags: (singleIssue as any)?.tags ?? null,
+        account: (singleIssue as any)?.account ?? null,
         keys: (singleIssue as any)?.id
           ? Object.keys(singleIssue as any).sort()
           : null,
