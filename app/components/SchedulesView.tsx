@@ -187,7 +187,7 @@ export default function SchedulesView() {
             className={
               "px-3 py-1 rounded-md border text-sm " +
               (isThisWeek
-                ? "bg-ink text-white border-ink"
+                ? "bg-ink text-cream border-ink"
                 : "bg-card border-line hover:bg-cream")
             }
           >
@@ -343,9 +343,15 @@ function SiteRows({
                       <span className="text-sm leading-tight font-medium text-ink">
                         {robot != null ? fmtNum(robot) : "—"}
                       </span>
-                      <span className="text-[10px] text-muted leading-tight">
-                        / {total != null ? fmtNum(total) : "—"}
-                      </span>
+                      {line.metricType === "robots" ? (
+                        <span className="text-[10px] text-muted leading-tight">
+                          robots
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted leading-tight">
+                          / {total != null ? fmtNum(total) : "—"}
+                        </span>
+                      )}
                       {hasOverride ? (
                         <span className="absolute -top-1 -right-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-500" />
                       ) : null}
@@ -373,9 +379,13 @@ function SiteRows({
             })}
             <td className="py-2 px-3 text-right">
               <div className="text-sm text-ink">{wk.robot.toLocaleString()}</div>
-              <div className="text-[10px] text-muted">
-                / {wk.total.toLocaleString()}
-              </div>
+              {line.metricType === "robots" ? (
+                <div className="text-[10px] text-muted">robot-days</div>
+              ) : (
+                <div className="text-[10px] text-muted">
+                  / {wk.total.toLocaleString()}
+                </div>
+              )}
             </td>
           </tr>
         );
@@ -406,11 +416,18 @@ function CellEditor({
   const [r, setR] = useState<string>(robot != null ? String(robot) : "");
   const [t, setT] = useState<string>(total != null ? String(total) : "");
 
+  const isRobots = line.metricType === "robots";
+
   function save() {
     const rn = r === "" ? undefined : Number(r);
-    const tn = t === "" ? undefined : Number(t);
     if (rn === undefined || Number.isFinite(rn)) onApply("robot", rn);
-    if (tn === undefined || Number.isFinite(tn)) onApply("total", tn);
+    if (isRobots) {
+      // For robot-count lines, keep total in sync with robot.
+      if (rn === undefined || Number.isFinite(rn)) onApply("total", rn);
+    } else {
+      const tn = t === "" ? undefined : Number(t);
+      if (tn === undefined || Number.isFinite(tn)) onApply("total", tn);
+    }
     onClose();
   }
 
@@ -422,7 +439,9 @@ function CellEditor({
       <div className="text-xs text-muted mb-2">
         <span className="text-ink font-medium">{line.lineName}</span> · {date}
       </div>
-      <label className="block text-xs text-muted mb-1">Robot expected</label>
+      <label className="block text-xs text-muted mb-1">
+        {isRobots ? "Robots in use" : "Robot expected"}
+      </label>
       <input
         type="number"
         value={r}
@@ -430,16 +449,20 @@ function CellEditor({
         className="w-full bg-card border border-line rounded-md px-2 py-1 text-sm mb-2 focus:outline-none focus:border-zinc-400"
         placeholder="(default)"
       />
-      <label className="block text-xs text-muted mb-1">
-        Total line expected
-      </label>
-      <input
-        type="number"
-        value={t}
-        onChange={(e) => setT(e.target.value)}
-        className="w-full bg-card border border-line rounded-md px-2 py-1 text-sm mb-3 focus:outline-none focus:border-zinc-400"
-        placeholder="(default)"
-      />
+      {isRobots ? null : (
+        <>
+          <label className="block text-xs text-muted mb-1">
+            Total line expected
+          </label>
+          <input
+            type="number"
+            value={t}
+            onChange={(e) => setT(e.target.value)}
+            className="w-full bg-card border border-line rounded-md px-2 py-1 text-sm mb-3 focus:outline-none focus:border-zinc-400"
+            placeholder="(default)"
+          />
+        </>
+      )}
       <div className="flex justify-between items-center">
         <button
           onClick={onClear}
@@ -457,7 +480,7 @@ function CellEditor({
           </button>
           <button
             onClick={save}
-            className="text-xs px-3 py-1 rounded-md bg-ink text-white font-medium hover:opacity-90"
+            className="text-xs px-3 py-1 rounded-md bg-ink text-cream font-medium hover:opacity-90"
           >
             Save
           </button>

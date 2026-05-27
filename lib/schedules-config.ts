@@ -11,7 +11,12 @@ export type LineConfig = {
   site: string;
   lineName: string; // "Line 2", "Line 6 North", etc.
   operatingHours: string; // "Mon-Fri · 5:00am-4:00pm"
-  // Default daily deposits — Sun..Sat (index 0..6). null = no shift that day.
+  // What does each cell represent?
+  //   "deposits" (default) — robot expected / total line expected (k-scale numbers)
+  //   "robots"             — single robot count (how many robots running that day)
+  metricType?: "deposits" | "robots";
+  // Default daily values — Sun..Sat (index 0..6). null = no shift that day.
+  // For "robots", only `defaultRobotByDow` is used; the total field is ignored.
   defaultRobotByDow: (number | null)[];
   defaultTotalByDow: (number | null)[];
 };
@@ -45,39 +50,43 @@ export const LINES: LineConfig[] = [
     defaultRobotByDow: MF(10000),
     defaultTotalByDow: MF(15000),
   },
-  // Amy's Medford — Mon-Fri · 6:30am-11:00pm · 7.5k/10k
+  // Amy's Medford — Mon-Fri · 6:30am-11:00pm · robots in use (10 robots total, ~5 per line)
   {
     id: "amys-medford-line-1",
     site: "Amy's Medford",
     lineName: "Line 1",
-    operatingHours: "Mon-Fri · 6:30am-11:00pm",
-    defaultRobotByDow: MF(7500),
-    defaultTotalByDow: MF(10000),
+    operatingHours: "Mon-Fri · 6:30am-11:00pm · robots in use",
+    metricType: "robots",
+    defaultRobotByDow: MF(5),
+    defaultTotalByDow: MF(5),
   },
   {
     id: "amys-medford-line-2",
     site: "Amy's Medford",
     lineName: "Line 2",
-    operatingHours: "Mon-Fri · 6:30am-11:00pm",
-    defaultRobotByDow: MF(7500),
-    defaultTotalByDow: MF(10000),
+    operatingHours: "Mon-Fri · 6:30am-11:00pm · robots in use",
+    metricType: "robots",
+    defaultRobotByDow: MF(5),
+    defaultTotalByDow: MF(5),
   },
-  // Amy's Pocatello — Mon-Fri · 5:30am-10:00pm · 5k/7k
+  // Amy's Pocatello — Mon-Fri · 5:30am-10:00pm · robots in use (8 robots total, ~4 per line)
   {
     id: "amys-pocatello-line-6-north",
     site: "Amy's Pocatello",
     lineName: "Line 6 North",
-    operatingHours: "Mon-Fri · 5:30am-10:00pm",
-    defaultRobotByDow: MF(5000),
-    defaultTotalByDow: MF(7000),
+    operatingHours: "Mon-Fri · 5:30am-10:00pm · robots in use",
+    metricType: "robots",
+    defaultRobotByDow: MF(4),
+    defaultTotalByDow: MF(4),
   },
   {
     id: "amys-pocatello-line-6-south",
     site: "Amy's Pocatello",
     lineName: "Line 6 South",
-    operatingHours: "Mon-Fri · 5:30am-10:00pm",
-    defaultRobotByDow: MF(5000),
-    defaultTotalByDow: MF(7000),
+    operatingHours: "Mon-Fri · 5:30am-10:00pm · robots in use",
+    metricType: "robots",
+    defaultRobotByDow: MF(4),
+    defaultTotalByDow: MF(4),
   },
 
   // Chef Bombay — 1 line · Mon-Fri · 5:30am-10:30pm · 6k/8k
