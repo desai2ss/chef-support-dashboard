@@ -12,12 +12,15 @@ type Robot = {
   totalOperatingHours: number;
   prodDate: string | null;
   onboarded: boolean;
+  online: boolean;
+  rssiDbm: number | null;
 };
 
 type Site = {
   site: string;
   robotCount: number;
   onboardedCount: number;
+  onlineCount: number;
   moduleUtilPct: number | null;
   siteTotalUtilPct: number | null;
   robots: Robot[];
@@ -25,11 +28,15 @@ type Site = {
 
 type ApiResponse = {
   configured: boolean;
+  hasBQ?: boolean;
+  hasDD?: boolean;
   sites?: Site[];
   kpis?: {
     fleetAvgUtilPct: number | null;
     robotsWithData: number;
     totalRobots: number;
+    ddOnline?: number;
+    ddTotal?: number;
   };
   unknownHostnames?: { hostname: string; customer_id: string }[];
   error?: string;
@@ -106,16 +113,29 @@ export default function FleetView() {
     tickets?.rows?.filter((r) => r.tags?.some((t) => /sla|breach/i.test(t))).length ??
     null;
 
+  const ddOnline = data.kpis?.ddOnline ?? null;
+  const ddTotal = data.kpis?.ddTotal ?? null;
+
   return (
     <div>
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <Kpi label="Open Tickets" value={openTickets} hint="from Pylon" />
         <Kpi
-          label="Breached SLA"
-          value={breachedSla}
-          hint="Needs attention"
-          tone={breachedSla && breachedSla > 0 ? "danger" : undefined}
+          label="Robots Online"
+          value={
+            ddOnline !== null && ddTotal !== null
+              ? `${ddOnline} / ${ddTotal}`
+              : "—"
+          }
+          hint="from Datadog"
+          tone={
+            ddOnline !== null && ddTotal !== null && ddOnline === ddTotal
+              ? "good"
+              : ddOnline !== null && ddTotal !== null && ddOnline < ddTotal
+              ? "warn"
+              : undefined
+          }
         />
         <Kpi
           label="Below Expected Util."
@@ -223,7 +243,7 @@ function SiteCard({ site }: { site: Site }) {
         <div>
           <div className="text-lg font-semibold">{site.site}</div>
           <div className="text-xs text-muted">
-            {site.robotCount} robots · {site.onboardedCount} reporting
+            {site.robotCount} robots · {site.onlineCount} online
           </div>
         </div>
         <div className="flex gap-6 text-xs">
@@ -251,7 +271,13 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function RobotCard({ r }: { r: Robot }) {
   const pct = r.utilPct;
-  const onlineDot = r.onboarded ? "bg-emerald-500" : "bg-line";
+  // Online dot: Datadog heartbeat in last ~10min. Falls back to BQ session
+  // activity (onboarded) if Datadog hasn't seen this robot at all.
+  const onlineDot = r.online
+    ? "bg-emerald-500"
+    : r.onboarded
+    ? "bg-amber-500"
+    : "bg-line";
   return (
     <div className="rounded border border-line bg-cream p-3">
       <div className="flex justify-between items-center mb-3">
@@ -286,7 +312,9 @@ function RobotCard({ r }: { r: Robot }) {
       </div>
       <div className="flex justify-between text-xs text-muted">
         <span>{r.buildVersion ?? "—"}</span>
-        <span>—</span>
+        <span title="Wireless RSSI">
+          {r.rssiDbm != null ? `${Math.round(r.rssiDbm)} dBm` : "—"}
+        </span>
       </div>
     </div>
   );

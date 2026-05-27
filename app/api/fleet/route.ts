@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { fetchFleetUtilization, fleetConfigured } from "@/lib/bigquery";
+import { fetchModuleHealth, datadogConfigured, ModuleHealth } from "@/lib/datadog";
 import {
   ROBOTS,
   SITES,
@@ -15,6 +16,7 @@ type SiteRollup = {
   site: string;
   robotCount: number;
   onboardedCount: number;
+  onlineCount: number;
   moduleUtilPct: number | null;
   siteTotalUtilPct: number | null;
   robots: {
@@ -27,6 +29,8 @@ type SiteRollup = {
     totalOperatingHours: number;
     prodDate: string | null;
     onboarded: boolean;
+    online: boolean;
+    rssiDbm: number | null;
   }[];
 };
 
@@ -36,16 +40,32 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  if (!fleetConfigured()) {
+  const hasBQ = fleetConfigured();
+  const hasDD = datadogConfigured();
+
+  if (!hasBQ && !hasDD) {
     return NextResponse.json({
       configured: false,
-      message: "BigQuery not configured. Set GCP_SA_KEY_BASE64 + GCP_PROJECT_ID in Vercel env.",
+      message: "Neither BigQuery nor Datadog configured. Set GCP_SA_KEY_BASE64 + GCP_PROJECT_ID and/or DATADOG_API_KEY + DATADOG_APP_KEY in Vercel env.",
       sites: [],
     });
   }
 
   try {
-    const utilRows = await fetchFleetUtilization(7);
+    // Fetch BQ utilization and Datadog heartbeat in parallel. Both can fail
+    // independently; we still render with whichever succeeded.
+    const [utilRows, ddModules] = await Promise.all([
+      hasBQ
+        ? fetchFleetUtilization(7).catch(() => [] as Awaited<ReturnType<typeof fetchFleetUtilization>>)
+        : Promise.resolve([] as Awaited<ReturnType<typeof fetchFleetUtilization>>),
+      hasDD
+        ? fetchModuleHealth().catch(() => [] as ModuleHealth[])
+        : Promise.resolve([] as ModuleHealth[]),
+    ]);
+
+    // Datadog hostname -> health row
+    const ddByHost = new Map<string, ModuleHealth>();
+    for (const m of ddModules) ddByHost.set(m.moduleId, m);
 
     // Latest row per hostname (most recent prod_date).
     const latestByHost = new Map<
@@ -64,6 +84,7 @@ export async function GET() {
       const siteRobots = ROBOTS.filter((r) => r.site === s.site);
       const rows = siteRobots.map((r) => {
         const bq = latestByHost.get(r.hostname);
+        const dd = ddByHost.get(r.hostname);
         return {
           hostname: r.hostname,
           sn: r.sn,
@@ -73,7 +94,9 @@ export async function GET() {
           productionHours: bq?.production_hours ?? 0,
           totalOperatingHours: bq?.total_operating_hours ?? 0,
           prodDate: bq?.prod_date ?? null,
-          onboarded: !!bq, // "onboarded" = has session data in last 7 days
+          onboarded: !!bq, // "onboarded" = has BQ session data in last 7 days
+          online: dd?.online ?? false, // live Datadog heartbeat
+          rssiDbm: dd?.wirelessRssiDbm ?? null,
         };
       });
       const withData = rows.filter((r) => r.utilPct !== null);
@@ -89,6 +112,7 @@ export async function GET() {
         site: s.site,
         robotCount: rows.length,
         onboardedCount: rows.filter((r) => r.onboarded).length,
+        onlineCount: rows.filter((r) => r.online).length,
         moduleUtilPct,
         siteTotalUtilPct: moduleUtilPct, // TODO: distinguish once we have shift schedules
         robots: rows,
@@ -136,13 +160,21 @@ export async function GET() {
               10
           ) / 10;
 
+    // Datadog-wide totals: total reporting + currently online
+    const ddOnline = ddModules.filter((m) => m.online).length;
+    const ddTotal = ddModules.length;
+
     return NextResponse.json({
       configured: true,
+      hasBQ,
+      hasDD,
       sites,
       kpis: {
         fleetAvgUtilPct: fleetAvgUtil,
         robotsWithData: allRobotsWithData.length,
         totalRobots: sites.reduce((s, x) => s + x.robotCount, 0),
+        ddOnline,
+        ddTotal,
       },
       unknownHostnames: unknownHostnames.slice(0, 50),
     });
@@ -150,7 +182,7 @@ export async function GET() {
     return NextResponse.json(
       {
         configured: true,
-        error: e?.message ?? "BigQuery request failed",
+        error: e?.message ?? "Fleet API failed",
         sites: [],
       },
       { status: 502 }
