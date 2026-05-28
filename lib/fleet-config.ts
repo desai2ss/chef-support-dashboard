@@ -44,6 +44,56 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "raone-pc",    sn: 45, nickname: "raone",    site: "Amy's Pocatello" },
   { hostname: "alfred-pc",   sn: 46, nickname: "alfred",   site: "Amy's Pocatello" },
   { hostname: "angela-pc",   sn: 47, nickname: "angela",   site: "Amy's Pocatello" },
+
+  // Cafe Spice (17 robots)
+  { hostname: "gort-pc",       sn: 11, nickname: "gort",       site: "Cafe Spice" },
+  { hostname: "rachael-pc",    sn: 19, nickname: "rachael",    site: "Cafe Spice" },
+  { hostname: "smith-pc",      sn: 20, nickname: "smith",      site: "Cafe Spice" },
+  { hostname: "boomer-pc",     sn: 31, nickname: "boomer",     site: "Cafe Spice" },
+  { hostname: "mo-pc",         sn: 33, nickname: "mo",         site: "Cafe Spice" },
+  { hostname: "voltron-pc",    sn: 34, nickname: "voltron",    site: "Cafe Spice" },
+  { hostname: "heavyarms-pc",  sn: 38, nickname: "heavyarms",  site: "Cafe Spice" },
+  { hostname: "calvin-pc",     sn: 39, nickname: "calvin",     site: "Cafe Spice" },
+  { hostname: "walle-pc",      sn: 40, nickname: "walle",      site: "Cafe Spice" },
+  { hostname: "shinatama-pc",  sn: 53, nickname: "shinatama",  site: "Cafe Spice" },
+  { hostname: "automaton-pc",  sn: 54, nickname: "automaton",  site: "Cafe Spice" },
+  { hostname: "metabee-pc",    sn: 55, nickname: "metabee",    site: "Cafe Spice" },
+  { hostname: "satomi-pc",     sn: 56, nickname: "satomi",     site: "Cafe Spice" },
+  { hostname: "roy-pc",        sn: 57, nickname: "roy",        site: "Cafe Spice" },
+  { hostname: "grace-pc",      sn: 58, nickname: "grace",      site: "Cafe Spice" },
+  { hostname: "chitti-pc",     sn: 59, nickname: "chitti",     site: "Cafe Spice" },
+  { hostname: "optimus-pc",    sn: 60, nickname: "optimus",    site: "Cafe Spice" },
+
+  // F&S Fresh Foods · Vineland (6 robots)
+  { hostname: "pizzabagel-pc", sn: 105, nickname: "pizzabagel", site: "F&S Fresh Foods" },
+  { hostname: "emily-pc",      sn: 106, nickname: "emily",      site: "F&S Fresh Foods" },
+  { hostname: "dalek-pc",      sn: 107, nickname: "dalek",      site: "F&S Fresh Foods" },
+  { hostname: "kipp-pc",       sn: 117, nickname: "kipp",       site: "F&S Fresh Foods" },
+  { hostname: "bigo-pc",       sn: 118, nickname: "bigo",       site: "F&S Fresh Foods" },
+  { hostname: "bnine-pc",      sn: 119, nickname: "bnine",      site: "F&S Fresh Foods" },
+
+  // Chef Bombay · Nisku (6 robots)
+  { hostname: "astroboy-pc",   sn: 13, nickname: "astroboy",   site: "Chef Bombay" },
+  { hostname: "tinman-pc",     sn: 14, nickname: "tinman",     site: "Chef Bombay" },
+  { hostname: "hal-pc",        sn: 15, nickname: "hal",        site: "Chef Bombay" },
+  { hostname: "lore-pc",       sn: 16, nickname: "lore",       site: "Chef Bombay" },
+  { hostname: "flexo-pc",      sn: 21, nickname: "flexo",      site: "Chef Bombay" },
+  { hostname: "calculon-pc",   sn: 22, nickname: "calculon",   site: "Chef Bombay" },
+
+  // POH (Openhand SF) (2 robots)
+  { hostname: "uran-pc",       sn: 62, nickname: "uran",       site: "POH" },
+  { hostname: "endy-pc",       sn: 65, nickname: "endy",       site: "POH" },
+
+  // Bonduelle · Irwindale (3 robots)
+  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle" },
+  { hostname: "bumblebee-pc",  sn: 111, nickname: "bumblebee",  site: "Bonduelle" },
+  { hostname: "bhakti-pc",     sn: 112, nickname: "bhakti",     site: "Bonduelle" },
+
+  // CookUnity LAX (4 robots)
+  { hostname: "asimo-pc",      sn: 63, nickname: "asimo",      site: "CookUnity LAX" },
+  { hostname: "butter-pc",     sn: 64, nickname: "butter",     site: "CookUnity LAX" },
+  { hostname: "preston-pc",    sn: 66, nickname: "preston",    site: "CookUnity LAX" },
+  { hostname: "escaflowne-pc", sn: 69, nickname: "escaflowne", site: "CookUnity LAX" },
 ];
 
 // Site → customer_id mapping. Amy's Medford and Pocatello share the same
@@ -59,13 +109,13 @@ export const SITES: SiteConfig[] = [
     customerIds: ["amys"],
     hostnameWhitelist: ROBOTS.filter((r) => r.site === "Amy's Pocatello").map((r) => r.hostname),
   },
-  { site: "Bonduelle",    customerIds: ["bonduelle"] },
-  { site: "Cafe Spice",   customerIds: ["cafespice"] },
-  { site: "Chef Bombay",  customerIds: ["chefbombay"] },
-  { site: "f&S",          customerIds: ["fsfreshfoods"] },
-  { site: "Cookunity",    customerIds: ["cookunity"] },
-  { site: "POH",          customerIds: ["openhand"] },
-  { site: "TF Internal",  customerIds: ["taylorfarms"] },
+  { site: "Bonduelle",       customerIds: ["bonduelle"] },
+  { site: "Cafe Spice",      customerIds: ["cafespice"] },
+  { site: "Chef Bombay",     customerIds: ["chefbombay"] },
+  { site: "F&S Fresh Foods", customerIds: ["fsfreshfoods"] },
+  { site: "CookUnity LAX",   customerIds: ["cookunity"] },
+  { site: "POH",             customerIds: ["openhand"] },
+  { site: "Taylor Farms",    customerIds: ["taylorfarms"] },
 ];
 
 // Reverse lookups built once at import time.
