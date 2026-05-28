@@ -54,12 +54,20 @@ export async function GET() {
   try {
     // Fetch BQ utilization and Datadog heartbeat in parallel. Both can fail
     // independently; we still render with whichever succeeded.
+    let bqError: string | null = null;
+    let ddError: string | null = null;
     const [utilRows, ddModules] = await Promise.all([
       hasBQ
-        ? fetchFleetUtilization(7).catch(() => [] as Awaited<ReturnType<typeof fetchFleetUtilization>>)
+        ? fetchFleetUtilization(7).catch((e) => {
+            bqError = e?.message ?? String(e);
+            return [] as Awaited<ReturnType<typeof fetchFleetUtilization>>;
+          })
         : Promise.resolve([] as Awaited<ReturnType<typeof fetchFleetUtilization>>),
       hasDD
-        ? fetchModuleHealth().catch(() => [] as ModuleHealth[])
+        ? fetchModuleHealth().catch((e) => {
+            ddError = e?.message ?? String(e);
+            return [] as ModuleHealth[];
+          })
         : Promise.resolve([] as ModuleHealth[]),
     ]);
 
@@ -168,6 +176,8 @@ export async function GET() {
       configured: true,
       hasBQ,
       hasDD,
+      bqError,
+      ddError,
       sites,
       kpis: {
         fleetAvgUtilPct: fleetAvgUtil,
