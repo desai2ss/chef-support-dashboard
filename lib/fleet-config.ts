@@ -18,24 +18,30 @@ export type RobotConfig = {
   sn: number; // Display SN, e.g. 29
   nickname: string; // Display nickname, e.g. "eric"
   site: string; // Display site name, e.g. "Amy's Pocatello"
+  // True if this robot is a backup/spare not in active rotation. Spares
+  // still appear on the Fleet view (so we can check their health) but get
+  // a "Spare" badge and are excluded from "active fleet" counts.
+  spare?: boolean;
 };
 
 // Robot roster. Hostnames are the BQ `sessions_v0.hostname` values; SN +
 // nickname are how we display them in the UI ("SN29 eric").
 export const ROBOTS: RobotConfig[] = [
-  // Amy's Medford (10 robots)
-  { hostname: "toaster-pc",   sn: 17, nickname: "toaster",   site: "Amy's Medford" },
-  { hostname: "redcomet-pc",  sn: 18, nickname: "redcomet",  site: "Amy's Medford" },
-  { hostname: "sophon-pc",    sn: 23, nickname: "sophon",    site: "Amy's Medford" },
-  { hostname: "burgl-pc",     sn: 24, nickname: "burgl",     site: "Amy's Medford" },
-  { hostname: "tars-pc",      sn: 25, nickname: "tars",      site: "Amy's Medford" },
-  { hostname: "irongiant-pc", sn: 26, nickname: "irongiant", site: "Amy's Medford" },
-  { hostname: "flapjack-pc",  sn: 35, nickname: "flapjack",  site: "Amy's Medford" },
-  { hostname: "doraemon-pc",  sn: 44, nickname: "doraemon",  site: "Amy's Medford" },
-  { hostname: "baxter-pc",    sn: 49, nickname: "baxter",    site: "Amy's Medford" },
-  { hostname: "ash-pc",       sn: 50, nickname: "ash",       site: "Amy's Medford" },
+  // Amy's Medford (11 robots total; SN17 is the on-site spare)
+  { hostname: "chappie-pc",     sn: 4,  nickname: "chappie",     site: "Amy's Medford" },
+  { hostname: "frankenstein-pc",sn: 6,  nickname: "frankenstein",site: "Amy's Medford" },
+  { hostname: "toaster-pc",     sn: 17, nickname: "toaster",     site: "Amy's Medford", spare: true },
+  { hostname: "sophon-pc",      sn: 23, nickname: "sophon",      site: "Amy's Medford" },
+  { hostname: "burgl-pc",       sn: 24, nickname: "burgl",       site: "Amy's Medford" },
+  { hostname: "tars-pc",        sn: 25, nickname: "tars",        site: "Amy's Medford" },
+  { hostname: "irongiant-pc",   sn: 26, nickname: "irongiant",   site: "Amy's Medford" },
+  { hostname: "flapjack-pc",    sn: 35, nickname: "flapjack",    site: "Amy's Medford" },
+  { hostname: "doraemon-pc",    sn: 44, nickname: "doraemon",    site: "Amy's Medford" },
+  { hostname: "baxter-pc",      sn: 49, nickname: "baxter",      site: "Amy's Medford" },
+  { hostname: "ash-pc",         sn: 50, nickname: "ash",         site: "Amy's Medford" },
 
-  // Amy's Pocatello (8 robots)
+  // Amy's Pocatello (9 robots; SN18 redcomet is the on-site spare)
+  { hostname: "redcomet-pc", sn: 18, nickname: "redcomet", site: "Amy's Pocatello", spare: true },
   { hostname: "eric-pc",     sn: 29, nickname: "eric",     site: "Amy's Pocatello" },
   { hostname: "brendan-pc",  sn: 30, nickname: "brendan",  site: "Amy's Pocatello" },
   { hostname: "case-pc",     sn: 32, nickname: "case",     site: "Amy's Pocatello" },
@@ -45,8 +51,8 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "alfred-pc",   sn: 46, nickname: "alfred",   site: "Amy's Pocatello" },
   { hostname: "angela-pc",   sn: 47, nickname: "angela",   site: "Amy's Pocatello" },
 
-  // Cafe Spice (17 robots)
-  { hostname: "gort-pc",       sn: 11, nickname: "gort",       site: "Cafe Spice" },
+  // Cafe Spice (17 robots; SN11 gort is the on-site spare)
+  { hostname: "gort-pc",       sn: 11, nickname: "gort",       site: "Cafe Spice", spare: true },
   { hostname: "rachael-pc",    sn: 19, nickname: "rachael",    site: "Cafe Spice" },
   { hostname: "smith-pc",      sn: 20, nickname: "smith",      site: "Cafe Spice" },
   { hostname: "boomer-pc",     sn: 31, nickname: "boomer",     site: "Cafe Spice" },
@@ -64,13 +70,13 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "chitti-pc",     sn: 59, nickname: "chitti",     site: "Cafe Spice" },
   { hostname: "optimus-pc",    sn: 60, nickname: "optimus",    site: "Cafe Spice" },
 
-  // F&S Fresh Foods · Vineland (6 robots)
-  { hostname: "pizzabagel-pc", sn: 105, nickname: "pizzabagel", site: "F&S Fresh Foods" },
-  { hostname: "emily-pc",      sn: 106, nickname: "emily",      site: "F&S Fresh Foods" },
-  { hostname: "dalek-pc",      sn: 107, nickname: "dalek",      site: "F&S Fresh Foods" },
-  { hostname: "kipp-pc",       sn: 117, nickname: "kipp",       site: "F&S Fresh Foods" },
-  { hostname: "bigo-pc",       sn: 118, nickname: "bigo",       site: "F&S Fresh Foods" },
-  { hostname: "bnine-pc",      sn: 119, nickname: "bnine",      site: "F&S Fresh Foods" },
+  // F&S Foods · Vineland (6 robots)
+  { hostname: "pizzabagel-pc", sn: 105, nickname: "pizzabagel", site: "F&S Foods" },
+  { hostname: "emily-pc",      sn: 106, nickname: "emily",      site: "F&S Foods" },
+  { hostname: "dalek-pc",      sn: 107, nickname: "dalek",      site: "F&S Foods" },
+  { hostname: "kipp-pc",       sn: 117, nickname: "kipp",       site: "F&S Foods" },
+  { hostname: "bigo-pc",       sn: 118, nickname: "bigo",       site: "F&S Foods" },
+  { hostname: "bnine-pc",      sn: 119, nickname: "bnine",      site: "F&S Foods" },
 
   // Chef Bombay · Nisku (6 robots)
   { hostname: "astroboy-pc",   sn: 13, nickname: "astroboy",   site: "Chef Bombay" },
@@ -112,7 +118,7 @@ export const SITES: SiteConfig[] = [
   { site: "Bonduelle",       customerIds: ["bonduelle"] },
   { site: "Cafe Spice",      customerIds: ["cafespice"] },
   { site: "Chef Bombay",     customerIds: ["chefbombay"] },
-  { site: "F&S Fresh Foods", customerIds: ["fsfreshfoods"] },
+  { site: "F&S Foods", customerIds: ["fsfreshfoods"] },
   { site: "CookUnity LAX",   customerIds: ["cookunity"] },
   { site: "POH",             customerIds: ["openhand"] },
   { site: "Taylor Farms",    customerIds: ["taylorfarms"] },

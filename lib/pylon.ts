@@ -10,10 +10,10 @@ const BASE = "https://api.usepylon.com";
 const OPEN_STATES = ["new", "waiting_on_you", "waiting_on_customer", "on_hold"];
 
 // Whitelist of customers we care about. Pylon account names may differ slightly
-// in casing/punctuation/suffix (e.g. "Cookunity" vs "CookUnity LA", "f&S" vs "F&S",
-// "Cafe Spice" vs "CafeSpice"), so we match with normalize() below.
+// in casing/punctuation/suffix (e.g. "Cookunity" vs "CookUnity LA", "F&S Foods"
+// vs "F&S Fresh Foods", "Cafe Spice" vs "CafeSpice"), so we match with normalize() below.
 const CUSTOMER_WHITELIST = [
-  "f&S",
+  "F&S Foods",
   "Amy's Medford",
   "Amy's Pocatello",
   "Chef Bombay",
@@ -299,7 +299,7 @@ async function enrichIssuesWithAssignee(
 // Tickets, Team, and Sites tabs all consume this; without caching each page
 // load pays the full cost. 60s TTL is a reasonable balance between freshness
 // and snappy navigation.
-const TICKETS_CACHE_TTL_MS = 60 * 1000;
+const TICKETS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 let ticketsCache: {
   ts: number;
   data: { total: number; rows: TicketRow[] };

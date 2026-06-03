@@ -57,9 +57,9 @@ export const SITES: SiteInfo[] = [
     bqCustomerIds: ["chefbombay"],
   },
   {
-    name: "F&S Fresh Foods",
+    name: "F&S Foods",
     operatingHours: "Mon-Sat · 3:00am-2:00pm",
-    pylonNames: ["f&S"], // dashboard display name from pylon whitelist
+    pylonNames: ["F&S Foods"], // dashboard display name from pylon whitelist
     bqCustomerIds: ["fsfreshfoods"],
   },
   {

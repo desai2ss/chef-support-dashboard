@@ -99,11 +99,11 @@ export const LINES: LineConfig[] = [
     defaultTotalByDow: MF(8000),
   },
 
-  // F&S Fresh Foods — 2 lines · Mon-Sat · 3:00am-2:00pm
+  // F&S Foods — 2 lines · Mon-Sat · 3:00am-2:00pm
   // Mon-Fri: 5k/7k · Sat: 4k/5.5k
   {
     id: "fs-veggie-line",
-    site: "F&S Fresh Foods",
+    site: "F&S Foods",
     lineName: "Veggie Line",
     operatingHours: "Mon-Sat · 3:00am-2:00pm",
     defaultRobotByDow: MS(5000, 4000),
@@ -111,7 +111,7 @@ export const LINES: LineConfig[] = [
   },
   {
     id: "fs-usda-line",
-    site: "F&S Fresh Foods",
+    site: "F&S Foods",
     lineName: "USDA Line",
     operatingHours: "Mon-Sat · 3:00am-2:00pm",
     defaultRobotByDow: MS(5000, 4000),
