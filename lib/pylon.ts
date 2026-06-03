@@ -142,6 +142,31 @@ export async function searchIssuesRaw(body: any): Promise<any> {
   return { status: res.status, body: text.slice(0, 2000) };
 }
 
+// Update an existing issue's state. Pylon accepts the issue number OR UUID as :id.
+// Pass one of: "new", "waiting_on_you", "waiting_on_customer", "on_hold", "closed",
+// or a custom-status slug defined in the Pylon workspace.
+export async function updateIssueState(
+  issueNumberOrId: string,
+  newState: string
+): Promise<void> {
+  const key = process.env.PYLON_API_KEY;
+  if (!key) throw new Error("PYLON_API_KEY is not set");
+  const res = await fetch(`${BASE}/issues/${issueNumberOrId}`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify({ state: newState }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Pylon PATCH /issues/${issueNumberOrId} ${res.status}: ${body.slice(0, 300)}`
+    );
+  }
+  // Cached list is now stale — drop it so the next read pulls fresh state.
+  invalidateTicketsCache();
+}
+
 // Returns the raw first issue from the API (no parsing/filtering). For debug only.
 export async function fetchRawSampleIssue(): Promise<any> {
   const end = new Date();
@@ -265,6 +290,7 @@ export type TicketRow = {
   state: string;
   link: string | null;
   latest: string | null;
+  createdAt: string | null; // ISO timestamp; used to flag "new in last 24h"
   tags: string[];
 };
 
@@ -348,6 +374,7 @@ export async function getOpenTickets(): Promise<{
       state: issue.state,
       link: issue.link ?? null,
       latest: issue.latest_message_time ?? issue.created_at ?? null,
+      createdAt: issue.created_at ?? null,
       tags: issue.tags ?? [],
     });
   }

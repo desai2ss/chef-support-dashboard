@@ -44,9 +44,24 @@ function tagMatch(tags: string[], needle: string): boolean {
   return tags.some((t) => t.toLowerCase().includes(n));
 }
 
-export default function TicketsTable() {
+export default function TicketsTable({ editor = false }: { editor?: boolean }) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
+
+  // Update one ticket's state in local data after a successful API write.
+  // If the new state is "closed", remove the ticket from the list (since the
+  // open-tickets feed wouldn't include it anymore).
+  function applyLocalState(ticketId: string, newState: string) {
+    setData((prev) => {
+      if (!prev || !prev.rows) return prev;
+      const next: ApiResponse = { ...prev };
+      next.rows = prev.rows
+        .map((r) => (r.id === ticketId ? { ...r, state: newState } : r))
+        .filter((r) => r.state !== "closed");
+      if (typeof prev.total === "number") next.total = next.rows.length;
+      return next;
+    });
+  }
 
   useEffect(() => {
     let alive = true;
@@ -133,13 +148,25 @@ export default function TicketsTable() {
       {filtered.length === 0 ? (
         <div className="text-muted text-sm italic">No tickets match this filter.</div>
       ) : (
-        <GroupedBySite rows={filtered} />
+        <GroupedBySite
+          rows={filtered}
+          editor={editor}
+          onStateChange={applyLocalState}
+        />
       )}
     </div>
   );
 }
 
-function GroupedBySite({ rows }: { rows: Row[] }) {
+function GroupedBySite({
+  rows,
+  editor,
+  onStateChange,
+}: {
+  rows: Row[];
+  editor: boolean;
+  onStateChange: (ticketId: string, newState: string) => void;
+}) {
   // Group preserving insertion order of the first ticket per site
   const order: string[] = [];
   const bySite = new Map<string, Row[]>();
@@ -210,15 +237,13 @@ function GroupedBySite({ rows }: { rows: Row[] }) {
                       {r.assignee ?? <span className="italic">(unassigned)</span>}
                     </td>
                     <td className="py-2.5 px-3 align-top">
-                      <span
-                        className={
-                          "inline-block px-2 py-0.5 rounded text-xs border " +
-                          (STATE_PILL[r.state] ??
-                            "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700")
-                        }
-                      >
-                        {STATE_LABEL[r.state] ?? r.state}
-                      </span>
+                      <StatusCell
+                        ticketId={r.id}
+                        ticketNumber={r.number}
+                        currentState={r.state}
+                        editor={editor}
+                        onChanged={(s) => onStateChange(r.id, s)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -228,5 +253,141 @@ function GroupedBySite({ rows }: { rows: Row[] }) {
         </section>
       ))}
     </div>
+  );
+}
+
+const ALLOWED_STATES = [
+  "new",
+  "waiting_on_you",
+  "waiting_on_customer",
+  "on_hold",
+  "closed",
+] as const;
+
+function StatusCell({
+  ticketId,
+  ticketNumber,
+  currentState,
+  editor,
+  onChanged,
+}: {
+  ticketId: string;
+  ticketNumber: number | null;
+  currentState: string;
+  editor: boolean;
+  onChanged: (newState: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pillCls =
+    STATE_PILL[currentState] ??
+    "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700";
+  const label = STATE_LABEL[currentState] ?? currentState;
+
+  async function save(next: string) {
+    if (next === currentState) {
+      setOpen(false);
+      return;
+    }
+    if (!editor) {
+      setError("Read-only");
+      return;
+    }
+    if (!ticketNumber) {
+      setError("Missing ticket number");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/tickets/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ number: String(ticketNumber), state: next }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.error ?? `Failed (${res.status})`);
+        setSaving(false);
+        return;
+      }
+      onChanged(next);
+      setOpen(false);
+    } catch (e: any) {
+      setError(e?.message ?? "Network error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Read-only users get the old static pill.
+  if (!editor) {
+    return (
+      <span className={"inline-block px-2 py-0.5 rounded text-xs border " + pillCls}>
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={saving}
+        className={
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border cursor-pointer hover:opacity-80 disabled:opacity-50 " +
+          pillCls
+        }
+        title="Click to change state"
+      >
+        {saving ? "Saving…" : label}
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+      {open ? (
+        <>
+          {/* click-outside catcher */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+          />
+          <ul className="absolute z-50 mt-1 right-0 min-w-[12rem] rounded-md border border-line bg-card shadow-lg py-1 text-left">
+            {ALLOWED_STATES.map((s) => {
+              const isCurrent = s === currentState;
+              const optCls =
+                STATE_PILL[s] ??
+                "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700";
+              return (
+                <li key={s}>
+                  <button
+                    type="button"
+                    onClick={() => save(s)}
+                    disabled={saving}
+                    className={
+                      "w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-cream " +
+                      (isCurrent ? "font-semibold" : "")
+                    }
+                  >
+                    <span className={"inline-block px-2 py-0.5 rounded text-[10px] border " + optCls}>
+                      {STATE_LABEL[s] ?? s}
+                    </span>
+                    {isCurrent ? <span className="text-muted">· current</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+      {error ? (
+        <div className="absolute z-50 mt-1 right-0 text-[10px] text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/40 rounded px-2 py-1 max-w-xs">
+          {error}
+        </div>
+      ) : null}
+    </span>
   );
 }

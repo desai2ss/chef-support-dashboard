@@ -39,7 +39,7 @@ export default async function TicketsPage() {
       <TopNav />
 
       <section className="card">
-        <TicketsTable />
+        <TicketsTable editor={editor} />
       </section>
     </main>
   );
