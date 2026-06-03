@@ -10,11 +10,12 @@ const SEED_CUSTOMERS: { name: string; weeklyHoursExpected: number }[] = [
   { name: "Amy's Medford",   weeklyHoursExpected: 0 },
   { name: "Amy's Pocatello", weeklyHoursExpected: 0 },
   { name: "Bonduelle",       weeklyHoursExpected: 0 },
-  { name: "Cafe Spice",      weeklyHoursExpected: 0 },
+  { name: "Café Spice",      weeklyHoursExpected: 0 },
   { name: "Chef Bombay",     weeklyHoursExpected: 0 },
   { name: "F&S Foods",       weeklyHoursExpected: 0 },
-  { name: "Cookunity",       weeklyHoursExpected: 0 },
+  { name: "CookUnity LAX",   weeklyHoursExpected: 0 },
   { name: "POH",             weeklyHoursExpected: 0 },
+  { name: "Taylor Farms",    weeklyHoursExpected: 0 },
 ];
 
 async function main() {

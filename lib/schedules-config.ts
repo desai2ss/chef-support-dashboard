@@ -33,10 +33,10 @@ function MS(weekday: number, saturday: number): (number | null)[] {
 }
 
 export const LINES: LineConfig[] = [
-  // Cafe Spice — Mon-Fri · 5:00am-4:00pm · 10k/15k
+  // Café Spice — Mon-Fri · 5:00am-4:00pm · 10k/15k
   {
     id: "cafespice-line-2",
-    site: "Cafe Spice",
+    site: "Café Spice",
     lineName: "Line 2",
     operatingHours: "Mon-Fri · 5:00am-4:00pm",
     defaultRobotByDow: MF(10000),
@@ -44,7 +44,7 @@ export const LINES: LineConfig[] = [
   },
   {
     id: "cafespice-line-3",
-    site: "Cafe Spice",
+    site: "Café Spice",
     lineName: "Line 3",
     operatingHours: "Mon-Fri · 5:00am-4:00pm",
     defaultRobotByDow: MF(10000),

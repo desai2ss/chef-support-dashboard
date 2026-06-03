@@ -17,17 +17,22 @@ const CUSTOMER_WHITELIST = [
   "Amy's Medford",
   "Amy's Pocatello",
   "Chef Bombay",
-  "Cafe Spice",
+  "Café Spice",
   "Bonduelle",
   "POH",
-  "TF Internal",
-  "Cookunity",
+  "Taylor Farms",
+  "CookUnity LAX",
 ];
 
-// Lowercase, strip non-alphanumerics so "Cafe Spice" / "CafeSpice" / "cafe-spice"
-// all collapse to "cafespice".
+// Lowercase, strip diacritics + non-alphanumerics so "Café Spice" / "Cafe Spice" /
+// "CafeSpice" / "cafe-spice" all collapse to "cafespice". The NFD + combining-mark
+// strip is what lets "é" match "e".
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 const WHITELIST_NORM = CUSTOMER_WHITELIST.map(normalize);

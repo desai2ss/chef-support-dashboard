@@ -31,9 +31,9 @@ const AMYS_POCATELLO_HOSTS = [
 
 export const SITES: SiteInfo[] = [
   {
-    name: "Cafe Spice",
+    name: "Café Spice",
     operatingHours: "Mon-Fri · 5:00am-4:00pm",
-    pylonNames: ["Cafe Spice"],
+    pylonNames: ["Café Spice"],
     bqCustomerIds: ["cafespice"],
   },
   {
@@ -65,7 +65,7 @@ export const SITES: SiteInfo[] = [
   {
     name: "Taylor Farms",
     operatingHours: "Mon-Sat · 6:00am-1:00am",
-    pylonNames: ["TF Internal"], // user mapped this in the Pylon whitelist
+    pylonNames: ["Taylor Farms"],
     bqCustomerIds: ["taylorfarms"],
   },
   {
@@ -83,7 +83,7 @@ export const SITES: SiteInfo[] = [
   {
     name: "CookUnity LAX",
     operatingHours: "Mon-Fri · 6:30am-9:30pm",
-    pylonNames: ["Cookunity"],
+    pylonNames: ["CookUnity LAX"],
     bqCustomerIds: ["cookunity"],
   },
 ];
