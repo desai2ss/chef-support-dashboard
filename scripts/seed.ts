@@ -12,7 +12,7 @@ const SEED_CUSTOMERS: { name: string; weeklyHoursExpected: number }[] = [
   { name: "Bonduelle",       weeklyHoursExpected: 0 },
   { name: "Cafe Spice",      weeklyHoursExpected: 0 },
   { name: "Chef Bombay",     weeklyHoursExpected: 0 },
-  { name: "f&S",             weeklyHoursExpected: 0 },
+  { name: "F&S Foods",       weeklyHoursExpected: 0 },
   { name: "Cookunity",       weeklyHoursExpected: 0 },
   { name: "POH",             weeklyHoursExpected: 0 },
 ];
