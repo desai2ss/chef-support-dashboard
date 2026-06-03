@@ -118,25 +118,6 @@ export const LINES: LineConfig[] = [
     defaultTotalByDow: MS(7000, 5500),
   },
 
-  // Taylor Farms — 2 lines · Mon-Sat · 6:00am-1:00am
-  // Mon-Fri: 4k/6k · Sat: 3k/4.5k
-  {
-    id: "taylor-farms-line-31",
-    site: "Taylor Farms",
-    lineName: "Line 31",
-    operatingHours: "Mon-Sat · 6:00am-1:00am",
-    defaultRobotByDow: MS(4000, 3000),
-    defaultTotalByDow: MS(6000, 4500),
-  },
-  {
-    id: "taylor-farms-line-33",
-    site: "Taylor Farms",
-    lineName: "Line 33",
-    operatingHours: "Mon-Sat · 6:00am-1:00am",
-    defaultRobotByDow: MS(4000, 3000),
-    defaultTotalByDow: MS(6000, 4500),
-  },
-
   // Bonduelle — 2 lines · Mon-Sat · 6:30am-2:30pm
   // Mon-Fri: 2k/3k · Sat: 1.5k/2.2k
   {

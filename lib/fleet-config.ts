@@ -121,7 +121,6 @@ export const SITES: SiteConfig[] = [
   { site: "F&S Foods", customerIds: ["fsfreshfoods"] },
   { site: "CookUnity LAX",   customerIds: ["cookunity"] },
   { site: "POH",             customerIds: ["openhand"] },
-  { site: "Taylor Farms",    customerIds: ["taylorfarms"] },
 ];
 
 // Reverse lookups built once at import time.

@@ -63,12 +63,6 @@ export const SITES: SiteInfo[] = [
     bqCustomerIds: ["fsfreshfoods"],
   },
   {
-    name: "Taylor Farms",
-    operatingHours: "Mon-Sat · 6:00am-1:00am",
-    pylonNames: ["Taylor Farms"],
-    bqCustomerIds: ["taylorfarms"],
-  },
-  {
     name: "Bonduelle",
     operatingHours: "Mon-Sat · 6:30am-2:30pm",
     pylonNames: ["Bonduelle"],

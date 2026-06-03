@@ -20,7 +20,6 @@ const CUSTOMER_WHITELIST = [
   "Café Spice",
   "Bonduelle",
   "POH",
-  "Taylor Farms",
   "CookUnity LAX",
 ];
 

@@ -15,7 +15,6 @@ const SEED_CUSTOMERS: { name: string; weeklyHoursExpected: number }[] = [
   { name: "F&S Foods",       weeklyHoursExpected: 0 },
   { name: "CookUnity LAX",   weeklyHoursExpected: 0 },
   { name: "POH",             weeklyHoursExpected: 0 },
-  { name: "Taylor Farms",    weeklyHoursExpected: 0 },
 ];
 
 async function main() {
