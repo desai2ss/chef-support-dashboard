@@ -6,6 +6,7 @@ type Robot = {
   hostname: string;
   sn: number;
   nickname: string;
+  spare?: boolean;
   buildVersion: string | null;
   utilPct: number | null;
   productionHours: number;
@@ -43,10 +44,29 @@ type ApiResponse = {
   message?: string;
 };
 
+type RecentTicket = {
+  id: string;
+  number: number | null;
+  title: string;
+  site: string;
+  state: string;
+  link: string | null;
+  createdAt: string | null;
+};
 type TicketsApi = {
   configured: boolean;
   total?: number;
-  rows?: { module: string | null; tags: string[] }[];
+  rows?: {
+    id: string;
+    number: number | null;
+    title: string;
+    site: string;
+    module: string | null;
+    state: string;
+    link: string | null;
+    createdAt: string | null;
+    tags: string[];
+  }[];
   error?: string;
 };
 
@@ -101,9 +121,26 @@ export default function FleetView() {
 
   const sites = data.sites ?? [];
   const openTickets = tickets?.total ?? null;
-  const untaggedTickets =
-    tickets?.rows?.filter((r) => !r.module).length ?? null;
   const fleetUtil = data.kpis?.fleetAvgUtilPct ?? null;
+
+  // Tickets created in the last 24 hours, sorted newest first.
+  const last24hAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recentTickets: RecentTicket[] = (tickets?.rows ?? [])
+    .filter((r) => {
+      if (!r.createdAt) return false;
+      const t = Date.parse(r.createdAt);
+      return Number.isFinite(t) && t >= last24hAgo;
+    })
+    .map((r) => ({
+      id: r.id,
+      number: r.number,
+      title: r.title,
+      site: r.site,
+      state: r.state,
+      link: r.link,
+      createdAt: r.createdAt,
+    }))
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   // "Below expected" = robots under 70% util as a placeholder; later this
   // will compare against per-customer expected_util_pct (manual entry).
   const robotsBelowExpected = sites.flatMap((s) =>
@@ -119,7 +156,7 @@ export default function FleetView() {
   return (
     <div>
       {/* KPI strip */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <Kpi label="Open Tickets" value={openTickets} hint="from Pylon" />
         <Kpi
           label="Robots Online"
@@ -149,56 +186,125 @@ export default function FleetView() {
           hint={`${data.kpis?.robotsWithData ?? 0} / ${data.kpis?.totalRobots ?? 0} robots reporting`}
           tone={fleetUtil !== null && fleetUtil >= 80 ? "good" : undefined}
         />
-        <Kpi
-          label="Untagged Tickets"
-          value={untaggedTickets}
-          hint="No module set"
-          tone={untaggedTickets && untaggedTickets > 0 ? "info" : undefined}
-        />
       </div>
 
-      {/* Untagged tickets banner */}
-      {untaggedTickets && untaggedTickets > 0 ? (
-        <div className="mb-5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex justify-between items-center">
-          <div className="text-sm">
-            <span className="font-semibold text-amber-800 dark:text-amber-300">
-              {untaggedTickets} ticket{untaggedTickets === 1 ? "" : "s"}
-            </span>{" "}
-            <span className="text-muted">
-              have no Module field set — excluded from robot cards and may
-              undercount open issues per robot.
-            </span>
-          </div>
-          <a
-            href="/tickets"
-            className="text-amber-700 dark:text-amber-400 text-sm hover:underline whitespace-nowrap"
-          >
-            Review untagged →
-          </a>
-        </div>
-      ) : null}
+      {/* New in last 24h */}
+      <RecentTicketsPanel tickets={recentTickets} />
 
-      {/* Site cards */}
-      {sites.map((s) => (
-        <SiteCard key={s.site} site={s} />
-      ))}
-
-      {/* Unknown hostnames advisory */}
-      {data.unknownHostnames && data.unknownHostnames.length > 0 ? (
-        <div className="mt-6 text-xs text-muted">
-          <div className="font-semibold mb-1">
-            BQ hostnames not in fleet roster:
-          </div>
-          <ul className="list-disc list-inside">
-            {data.unknownHostnames.map((u) => (
-              <li key={u.hostname}>
-                <code>{u.hostname}</code> (customer: <code>{u.customer_id}</code>)
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      {/* Site cards — hide sites with no robots in the roster */}
+      {sites
+        .filter((s) => s.robotCount > 0)
+        .map((s) => (
+          <SiteCard key={s.site} site={s} />
+        ))}
     </div>
+  );
+}
+
+const STATE_LABEL: Record<string, string> = {
+  new: "New",
+  waiting_on_you: "Waiting on You",
+  waiting_on_customer: "Waiting on Customer",
+  on_hold: "On Hold",
+};
+const STATE_PILL: Record<string, string> = {
+  new: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700/40",
+  waiting_on_you: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/40",
+  waiting_on_customer: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/40",
+  on_hold: "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
+};
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function RecentTicketsPanel({ tickets }: { tickets: RecentTicket[] }) {
+  return (
+    <section className="mb-5 rounded-lg border border-line bg-card p-4">
+      <div className="flex justify-between items-baseline mb-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider">
+          New in last 24h
+        </h2>
+        <span className="text-xs text-muted">
+          {tickets.length} ticket{tickets.length === 1 ? "" : "s"} opened ·{" "}
+          <a href="/tickets" className="hover:underline">
+            see all →
+          </a>
+        </span>
+      </div>
+      {tickets.length === 0 ? (
+        <div className="text-muted text-sm italic">
+          No new Pylon tickets in the last 24 hours.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted">
+                <th className="text-left py-1.5 w-16 font-medium">#</th>
+                <th className="text-left py-1.5 font-medium">Title</th>
+                <th className="text-left py-1.5 w-36 font-medium">Site</th>
+                <th className="text-left py-1.5 w-40 font-medium">Status</th>
+                <th className="text-right py-1.5 w-20 font-medium">Opened</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.slice(0, 10).map((t) => (
+                <tr key={t.id} className="border-t border-line/60">
+                  <td className="py-1.5 align-top">
+                    {t.link ? (
+                      <a
+                        href={t.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        {t.number ?? "—"}
+                      </a>
+                    ) : (
+                      <span className="text-muted">{t.number ?? "—"}</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 align-top">{t.title}</td>
+                  <td className="py-1.5 align-top text-muted">{t.site}</td>
+                  <td className="py-1.5 align-top">
+                    <span
+                      className={
+                        "inline-block px-2 py-0.5 rounded text-xs border " +
+                        (STATE_PILL[t.state] ??
+                          "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700")
+                      }
+                    >
+                      {STATE_LABEL[t.state] ?? t.state}
+                    </span>
+                  </td>
+                  <td className="py-1.5 align-top text-right text-xs text-muted">
+                    {timeAgo(t.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {tickets.length > 10 ? (
+            <div className="text-xs text-muted mt-2 text-right">
+              + {tickets.length - 10} more —{" "}
+              <a href="/tickets" className="hover:underline">
+                see all
+              </a>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -237,13 +343,16 @@ function Kpi({
 }
 
 function SiteCard({ site }: { site: Site }) {
+  const spareCount = site.robots.filter((r) => r.spare).length;
+  const activeCount = site.robotCount - spareCount;
   return (
     <section className="mb-5 rounded-lg border border-line bg-card p-4">
       <div className="flex justify-between items-baseline mb-4">
         <div>
           <div className="text-lg font-semibold">{site.site}</div>
           <div className="text-xs text-muted">
-            {site.robotCount} robots · {site.onlineCount} online
+            {activeCount} robots · {site.onlineCount} online
+            {spareCount > 0 ? ` · ${spareCount} spare` : ""}
           </div>
         </div>
         <div className="flex gap-6 text-xs">
@@ -279,11 +388,19 @@ function RobotCard({ r }: { r: Robot }) {
     ? "bg-amber-500"
     : "bg-line";
   return (
-    <div className="rounded border border-line bg-cream p-3">
+    <div className={"rounded border border-line bg-cream p-3 " + (r.spare ? "opacity-70" : "")}>
       <div className="flex justify-between items-center mb-3">
-        <div className="text-sm">
+        <div className="text-sm flex items-center gap-1.5">
           <span className="text-muted">SN{r.sn}</span>{" "}
           <span className="font-medium">{r.nickname}</span>
+          {r.spare ? (
+            <span
+              className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-line text-muted bg-card"
+              title="Spare robot — not in active rotation"
+            >
+              Spare
+            </span>
+          ) : null}
         </div>
         <span className={"inline-block w-2 h-2 rounded-full " + onlineDot} />
       </div>
