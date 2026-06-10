@@ -28,6 +28,30 @@ type ApiResponse = {
   message?: string;
 };
 
+type JiraMember = {
+  id: string;
+  name: string;
+  initials: string;
+  colorClass: string;
+  count: number;
+  tickets: {
+    key: string;
+    summary: string;
+    statusName: string;
+    url: string;
+    updated: string | null;
+  }[];
+  jiraMatchPending: boolean;
+};
+
+type JiraApiResponse = {
+  configured: boolean;
+  projectKey?: string | null;
+  members?: JiraMember[];
+  error?: string;
+  message?: string;
+};
+
 const WORKING_KEY = "chef-support-team-working-v1";
 const CALENDAR_KEY = "chef-support-team-calendar-v1";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -63,6 +87,7 @@ function shortMonthDay(d: Date): string {
 
 export default function TeamView() {
   const [data, setData] = useState<ApiResponse | null>(null);
+  const [jiraData, setJiraData] = useState<JiraApiResponse | null>(null);
   const [working, setWorking] = useState<WorkingOn>({});
   const [calendar, setCalendar] = useState<Calendar>({});
 
@@ -85,6 +110,23 @@ export default function TeamView() {
       .then((j) => alive && setData(j))
       .catch((e) =>
         alive && setData({ configured: true, error: String(e), members: [] })
+      );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Load Jira-backed bandwidth (separate endpoint so a Jira outage doesn't
+  // block the Pylon section, and so the Pylon section can keep its existing
+  // cache behavior).
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/jira/team", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => alive && setJiraData(j))
+      .catch((e) =>
+        alive &&
+        setJiraData({ configured: true, error: String(e), members: [] })
       );
     return () => {
       alive = false;
@@ -119,6 +161,10 @@ export default function TeamView() {
 
   const members = data?.members ?? TEAM.map(toFallback);
   const maxCount = Math.max(1, ...members.map((m) => m.count));
+
+  const jiraMembers = jiraData?.members ?? TEAM.map(toJiraFallback);
+  const jiraMaxCount = Math.max(1, ...jiraMembers.map((m) => m.count));
+  const jiraProjectKey = jiraData?.projectKey ?? "Jira";
 
   return (
     <div>
@@ -155,6 +201,58 @@ export default function TeamView() {
                   .map((m) => `${m.name}'s Pylon user ID pending`)
                   .join(", ")}{" "}
                 — bandwidth will populate once assigned.
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
+
+      {/* Jira bandwidth — open tickets assigned per teammate */}
+      <section className="mb-6 rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
+        <div className="flex justify-between items-baseline mb-4">
+          <h2 className="text-base font-semibold">
+            Jira{" "}
+            <span className="text-muted font-normal">
+              {jiraData?.projectKey ? jiraData.projectKey : ""}
+            </span>{" "}
+            — open tickets
+          </h2>
+          <span className="text-xs text-muted">
+            Open Jira tickets assigned to each person (
+            {jiraProjectKey} board, not Done)
+          </span>
+        </div>
+
+        {jiraData && !jiraData.configured ? (
+          <div className="text-amber-900 bg-amber-50 border border-amber-200 rounded-md p-3 text-sm mb-3">
+            {jiraData.message ?? "Jira not configured."}
+          </div>
+        ) : null}
+        {jiraData?.error ? (
+          <div className="text-red-700 bg-red-50 border border-red-200 rounded-md p-3 text-sm mb-3">
+            {jiraData.error}
+          </div>
+        ) : null}
+        {!jiraData ? (
+          <div className="text-muted text-sm">Loading Jira bandwidth…</div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {jiraMembers.map((m) => (
+              <JiraBandwidthRow
+                key={m.id}
+                m={m}
+                maxCount={jiraMaxCount}
+              />
+            ))}
+            {jiraMembers.every((m) => m.count === 0) &&
+            jiraData?.configured &&
+            !jiraData?.error ? (
+              <div className="text-xs text-muted mt-1">
+                No matches yet — Jira often hides assignee emails, so we fall
+                back to display-name. If counts stay at 0, check{" "}
+                <code className="text-[11px]">/api/jira/team</code> in a tab to
+                see the actual <code>uniqueAssignees</code> list and adjust{" "}
+                <code>lib/team-config.ts</code> names to match.
               </div>
             ) : null}
           </div>
@@ -282,6 +380,54 @@ function toFallback(m: TeamMember): Bandwidth {
     count: 0,
     tickets: [],
   };
+}
+
+function toJiraFallback(m: TeamMember): JiraMember {
+  return {
+    id: m.id,
+    name: m.name,
+    initials: m.initials,
+    colorClass: m.colorClass,
+    count: 0,
+    tickets: [],
+    jiraMatchPending: true,
+  };
+}
+
+function JiraBandwidthRow({
+  m,
+  maxCount,
+}: {
+  m: JiraMember;
+  maxCount: number;
+}) {
+  const widthPct = m.count === 0 ? 4 : Math.max(8, (m.count / maxCount) * 100);
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className={
+          "shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold " +
+          m.colorClass
+        }
+      >
+        {m.initials}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-ink">{m.name}</div>
+      </div>
+      <div className="flex-1 max-w-md">
+        <div className="h-2 bg-cream rounded-full overflow-hidden">
+          <div
+            className={"h-full " + m.colorClass}
+            style={{ width: `${widthPct}%`, opacity: m.count === 0 ? 0.25 : 1 }}
+          />
+        </div>
+      </div>
+      <div className="w-10 text-right text-sm font-medium text-ink">
+        {m.count}
+      </div>
+    </div>
+  );
 }
 
 function BandwidthRow({

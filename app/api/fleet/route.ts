@@ -23,6 +23,7 @@ type SiteRollup = {
     hostname: string;
     sn: number;
     nickname: string;
+    spare: boolean;
     buildVersion: string | null;
     utilPct: number | null;
     productionHours: number;
@@ -97,6 +98,7 @@ export async function GET() {
           hostname: r.hostname,
           sn: r.sn,
           nickname: r.nickname,
+          spare: !!r.spare,
           buildVersion: bq?.build_version ?? null,
           utilPct: bq ? Math.round(bq.module_util_pct * 10) / 10 : null,
           productionHours: bq?.production_hours ?? 0,
