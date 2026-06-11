@@ -200,47 +200,58 @@ export async function runRollup(
   let skipped = 0;
   const unknown = new Set<string>();
 
+  // Map each BQ row to a daily_metrics row. Skip unknown hostnames.
+  type Row = {
+    sn: number;
+    date: string;
+    site: string;
+    utilPct: number | null;
+    productionHours: number;
+    servings: number | null;
+  };
+  const rows: Row[] = [];
   for (const row of sessions) {
-    // Map hostname -> SN + site (handles Amy's split via fleet-config)
     const robot = HOSTNAME_LOOKUP.get(row.hostname);
     if (!robot) {
       unknown.add(row.hostname);
       skipped++;
       continue;
     }
-    // The fleet-config split logic for shared customer_id (Amy's) lives in
-    // siteFor() — use it to confirm the (customer_id, hostname) -> site map.
     const site = siteFor(row.customer_id, row.hostname) ?? robot.site;
-
     const hrsAvail = AVAILABLE_HRS.get(site);
     const utilPct =
       hrsAvail && hrsAvail > 0
         ? (row.production_hours / hrsAvail) * 100
         : null;
+    rows.push({
+      sn: robot.sn,
+      date: row.prod_date,
+      site,
+      utilPct,
+      productionHours: row.production_hours,
+      servings: null,
+    });
+  }
 
+  // Batch upsert in chunks. `excluded.column` references the row that
+  // would have been inserted, so the SET clause picks up per-row values.
+  // We intentionally do NOT touch uptime_pct / uptime_pylon_ticket / uptime_note —
+  // those are owned by the editor.
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const batch = rows.slice(i, i + CHUNK);
     await db
       .insert(schema.dailyMetrics)
-      .values({
-        sn: robot.sn,
-        date: row.prod_date,
-        site,
-        utilPct,
-        productionHours: row.production_hours,
-        servings: null,
-        // Do NOT overwrite uptime fields — they default 100 on first insert,
-        // and on conflict we don't touch them.
-      })
+      .values(batch)
       .onConflictDoUpdate({
         target: [schema.dailyMetrics.sn, schema.dailyMetrics.date],
         set: {
-          site,
-          utilPct,
-          productionHours: row.production_hours,
-          // Intentionally NOT updating: uptimePct, uptimePylonTicket,
-          // uptimeNote — those are sacred to the editor.
+          site: sql`excluded.site`,
+          utilPct: sql`excluded.util_pct`,
+          productionHours: sql`excluded.production_hours`,
         },
       });
-    written++;
+    written += batch.length;
   }
 
   return {
