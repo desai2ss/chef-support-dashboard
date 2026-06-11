@@ -60,6 +60,24 @@ export const scheduleOverrides = pgTable(
   })
 );
 
+// Team calendar entries — one row per (team-member, date). Shared across
+// everyone logged in (replaces the old localStorage-only calendar). UI on the
+// Team tab edits the next 8 weeks; older rows are kept but not shown by
+// default.
+export const teamCalendar = pgTable(
+  "team_calendar",
+  {
+    memberId: text("member_id").notNull(), // matches TeamMember.id in lib/team-config.ts
+    date: text("date").notNull(), // YYYY-MM-DD
+    note: text("note").notNull().default(""),
+    updatedBy: text("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.memberId, t.date] }),
+  })
+);
+
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 export type Module = typeof modules.$inferSelect;
@@ -67,3 +85,5 @@ export type NewModule = typeof modules.$inferInsert;
 export type DailyNote = typeof dailyNotes.$inferSelect;
 export type ScheduleOverride = typeof scheduleOverrides.$inferSelect;
 export type NewScheduleOverride = typeof scheduleOverrides.$inferInsert;
+export type TeamCalendarEntry = typeof teamCalendar.$inferSelect;
+export type NewTeamCalendarEntry = typeof teamCalendar.$inferInsert;

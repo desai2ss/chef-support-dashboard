@@ -53,7 +53,7 @@ export async function GET() {
   }
 
   try {
-    const { issues } = await getOpenJiraIssues();
+    const { issues, source, rawCount } = await getOpenJiraIssues();
 
     // Match strategy: prefer email, fall back to display-name (lowercased,
     // trimmed). Jira often hides `emailAddress` due to user privacy
@@ -112,7 +112,9 @@ export async function GET() {
       byAssignee.set(k, (byAssignee.get(k) ?? 0) + 1);
     }
     const debug = {
-      totalIssues: issues.length,
+      endpoint: source,
+      totalIssuesInProject: rawCount, // before Done filter
+      openIssues: issues.length, // after Done filter (statusCategory != "done")
       unassigned,
       uniqueAssignees: Array.from(byAssignee.entries())
         .sort((a, b) => b[1] - a[1])

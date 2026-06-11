@@ -53,8 +53,11 @@ type JiraApiResponse = {
 };
 
 const WORKING_KEY = "chef-support-team-working-v1";
-const CALENDAR_KEY = "chef-support-team-calendar-v1";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// How many weeks of calendar to show + edit. Starts from Monday of the
+// current week, so 8 = current week + 7 weeks forward.
+const CALENDAR_WEEKS = 8;
 
 type WorkingOn = Record<string, { task: string; status?: string; updated?: string }>;
 type Calendar = Record<string, string>; // key = "<memberId>|YYYY-MM-DD" -> note
@@ -85,11 +88,13 @@ function shortMonthDay(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export default function TeamView() {
+export default function TeamView({ editor = false }: { editor?: boolean }) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [jiraData, setJiraData] = useState<JiraApiResponse | null>(null);
   const [working, setWorking] = useState<WorkingOn>({});
   const [calendar, setCalendar] = useState<Calendar>({});
+  const [calendarLoaded, setCalendarLoaded] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
 
   const today = useMemo(() => {
     const d = new Date();
@@ -97,10 +102,16 @@ export default function TeamView() {
     return d;
   }, []);
   const weekStart = useMemo(() => mondayOf(today), [today]);
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+  // CALENDAR_WEEKS weeks (Mon..Sun each), starting from the Monday of this week.
+  const weeks = useMemo(
+    () =>
+      Array.from({ length: CALENDAR_WEEKS }, (_, w) =>
+        Array.from({ length: 7 }, (_, d) => addDays(weekStart, w * 7 + d))
+      ),
     [weekStart]
   );
+  // Flat list of every day shown (used as `days` in headers etc.)
+  const days = useMemo(() => weeks.flat(), [weeks]);
 
   // Load Pylon-backed bandwidth
   useEffect(() => {
@@ -146,18 +157,76 @@ export default function TeamView() {
     } catch {}
   }, [working]);
 
-  // Load + persist calendar
+  // Load calendar from server. Persists for everyone via Postgres
+  // (replaces the old localStorage-only approach).
   useEffect(() => {
+    let alive = true;
+    if (days.length === 0) return;
+    const from = fmtDate(days[0]);
+    const to = fmtDate(days[days.length - 1]);
+    fetch(`/api/team-calendar?from=${from}&to=${to}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        if (j?.error) {
+          setCalendarError(j.error);
+          setCalendarLoaded(true);
+          return;
+        }
+        const next: Calendar = {};
+        for (const row of j.entries ?? []) {
+          next[`${row.memberId}|${row.date}`] = row.note ?? "";
+        }
+        setCalendar(next);
+        setCalendarLoaded(true);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setCalendarError(String(e));
+        setCalendarLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+    // We deliberately depend only on the first/last day strings so this
+    // only re-runs if the visible window shifts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fmtDate(days[0] ?? new Date()), fmtDate(days[days.length - 1] ?? new Date())]);
+
+  // Persist a single (memberId, date) → note edit to the server, with
+  // optimistic local update + revert on failure.
+  async function saveCalendarNote(memberId: string, date: string, note: string) {
+    const key = `${memberId}|${date}`;
+    const previous = calendar[key] ?? "";
+    setCalendar((prev) => {
+      const next = { ...prev };
+      if (!note.trim()) delete next[key];
+      else next[key] = note.trim();
+      return next;
+    });
     try {
-      const raw = localStorage.getItem(CALENDAR_KEY);
-      if (raw) setCalendar(JSON.parse(raw));
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(CALENDAR_KEY, JSON.stringify(calendar));
-    } catch {}
-  }, [calendar]);
+      const r = await fetch("/api/team-calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId, date, note }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.error ?? `Save failed (HTTP ${r.status})`);
+      }
+    } catch (e: any) {
+      // Revert the optimistic update on failure.
+      setCalendar((prev) => {
+        const next = { ...prev };
+        if (!previous) delete next[key];
+        else next[key] = previous;
+        return next;
+      });
+      setCalendarError(e?.message ?? "Save failed");
+      // Clear the error after a few seconds so it doesn't stick around.
+      setTimeout(() => setCalendarError(null), 4000);
+    }
+  }
 
   const members = data?.members ?? TEAM.map(toFallback);
   const maxCount = Math.max(1, ...members.map((m) => m.count));
@@ -263,8 +332,9 @@ export default function TeamView() {
       <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 items-start">
         <span className="text-amber-700 text-base leading-none mt-0.5">⚠</span>
         <div className="text-sm text-amber-900">
-          Working-on and calendar edits below persist in this browser session
-          only. SQLite store isn&apos;t wired yet — closing the tab resets them.
+          &ldquo;Currently working on&rdquo; edits persist in this browser only
+          — closing the tab resets them. The Team calendar below is shared
+          across everyone signed in.
         </div>
       </div>
 
@@ -310,59 +380,85 @@ export default function TeamView() {
         </div>
       </section>
 
-      {/* Team calendar — manual entry per person per day */}
+      {/* Team calendar — manual entry per person per day, persisted in Postgres.
+          Shows CALENDAR_WEEKS weeks starting from this Monday. */}
       <section className="rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
         <div className="flex justify-between items-baseline mb-3">
-          <h2 className="text-base font-semibold">Team calendar — this week</h2>
+          <div>
+            <h2 className="text-base font-semibold">
+              Team calendar — next {CALENDAR_WEEKS} weeks
+            </h2>
+            <div className="text-xs text-muted mt-0.5">
+              Shared across everyone signed in.{" "}
+              {editor
+                ? "Click any cell to add PTO, on-call, site visits, etc."
+                : "Read-only — only editors can change cells."}
+            </div>
+          </div>
           <span className="text-xs text-muted">
-            {shortMonthDay(days[0])} – {shortMonthDay(days[6])} · click cell to edit
+            {shortMonthDay(days[0])} – {shortMonthDay(days[days.length - 1])}
           </span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-muted">
-                <th className="text-left py-2 px-2 w-44 font-medium">Person</th>
-                {days.map((d) => {
-                  const isToday = fmtDate(d) === fmtDate(today);
-                  return (
-                    <th
-                      key={fmtDate(d)}
-                      className={
-                        "text-left py-2 px-2 font-medium " +
-                        (isToday ? "text-blue-700" : "")
-                      }
-                    >
-                      <div>{DAY_NAMES[d.getDay()]}</div>
-                      <div className="font-normal normal-case text-muted">
-                        {shortMonthDay(d)}
-                      </div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {TEAM.map((m) => (
-                <CalendarRow
-                  key={m.id}
-                  m={m}
-                  days={days}
-                  today={today}
-                  calendar={calendar}
-                  onSet={(date, note) =>
-                    setCalendar((prev) => {
-                      const key = `${m.id}|${date}`;
-                      const next = { ...prev };
-                      if (!note.trim()) delete next[key];
-                      else next[key] = note.trim();
-                      return next;
-                    })
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
+
+        {calendarError ? (
+          <div className="text-red-700 bg-red-50 border border-red-200 rounded-md p-3 text-sm mb-3">
+            {calendarError}
+          </div>
+        ) : null}
+        {!calendarLoaded ? (
+          <div className="text-muted text-sm">Loading calendar…</div>
+        ) : null}
+
+        <div className="flex flex-col gap-5">
+          {weeks.map((weekDays, wi) => (
+            <div key={fmtDate(weekDays[0])}>
+              <div className="text-xs uppercase tracking-wider text-muted mb-1.5">
+                Week of {shortMonthDay(weekDays[0])} –{" "}
+                {shortMonthDay(weekDays[6])}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted">
+                      <th className="text-left py-2 px-2 w-44 font-medium">
+                        Person
+                      </th>
+                      {weekDays.map((d) => {
+                        const isToday = fmtDate(d) === fmtDate(today);
+                        return (
+                          <th
+                            key={fmtDate(d)}
+                            className={
+                              "text-left py-2 px-2 font-medium " +
+                              (isToday ? "text-blue-700" : "")
+                            }
+                          >
+                            <div>{DAY_NAMES[d.getDay()]}</div>
+                            <div className="font-normal normal-case text-muted">
+                              {shortMonthDay(d)}
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {TEAM.map((m) => (
+                      <CalendarRow
+                        key={`${m.id}-${wi}`}
+                        m={m}
+                        days={weekDays}
+                        today={today}
+                        calendar={calendar}
+                        editor={editor}
+                        onSet={(date, note) => saveCalendarNote(m.id, date, note)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>
@@ -591,12 +687,14 @@ function CalendarRow({
   days,
   today,
   calendar,
+  editor,
   onSet,
 }: {
   m: TeamMember;
   days: Date[];
   today: Date;
   calendar: Calendar;
+  editor: boolean;
   onSet: (date: string, note: string) => void;
 }) {
   const [editingDate, setEditingDate] = useState<string | null>(null);
@@ -654,12 +752,21 @@ function CalendarRow({
           <td
             key={date}
             className={
-              "py-1 px-1 align-top cursor-pointer hover:bg-cream/60 " +
+              "py-1 px-1 align-top " +
+              (editor ? "cursor-pointer hover:bg-cream/60 " : "") +
               (isToday ? "bg-blue-50/40" : "")
             }
-            onClick={() => openEdit(date)}
+            onClick={() => {
+              if (editor) openEdit(date);
+            }}
+            title={editor ? "Click to edit" : "Read-only — only editors can change cells"}
           >
-            <div className="min-h-[2rem] text-xs px-1.5 py-1 rounded-md border border-transparent hover:border-line">
+            <div
+              className={
+                "min-h-[2rem] text-xs px-1.5 py-1 rounded-md border border-transparent " +
+                (editor ? "hover:border-line" : "")
+              }
+            >
               {note ? (
                 <span className="text-ink">{note}</span>
               ) : (

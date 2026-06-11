@@ -38,7 +38,7 @@ export default async function TeamPage() {
 
       <TopNav />
 
-      <TeamView />
+      <TeamView editor={editor} />
     </main>
   );
 }

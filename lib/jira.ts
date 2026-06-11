@@ -1,6 +1,16 @@
-// Thin Jira Cloud client. Uses Basic auth (email + API token) and the
-// enhanced search endpoint `/rest/api/3/search/jql` (the classic
-// `/rest/api/3/search` was retired in 2024-2025).
+// Thin Jira Cloud client. Uses Basic auth (email + API token).
+//
+// Endpoint strategy:
+//   We call the classic `/rest/api/3/search` first (still supported on every
+//   Cloud site as of mid-2026) and fall back to the new
+//   `/rest/api/3/search/jql` if classic ever returns 410 Gone. The classic
+//   endpoint is what every Atlassian doc/example still shows, and we hit a
+//   silent-empty-result issue using the new endpoint on this site.
+//
+// JQL strategy:
+//   We pull ALL issues in the project (no statusCategory filter) and filter
+//   "Done" in JS by inspecting `fields.status.statusCategory.key`. That keeps
+//   the JQL trivially valid even if a project has weird status mappings.
 //
 // Env vars required:
 //   JIRA_BASE_URL      e.g. https://chef.atlassian.net
@@ -8,7 +18,7 @@
 //   JIRA_API_TOKEN     created at https://id.atlassian.com/manage-profile/security/api-tokens
 //   JIRA_PROJECT_KEY   the project key, e.g. CUST
 //
-// Cache: in-memory module-level, 5-minute TTL, mirroring lib/pylon.ts.
+// Cache: in-memory module-level, 5-minute TTL.
 
 const RAW_BASE = process.env.JIRA_BASE_URL || "";
 const JIRA_BASE = RAW_BASE.replace(/\/$/, "");
@@ -36,13 +46,13 @@ export type JiraAssignee = {
 };
 
 export type JiraIssue = {
-  key: string; // "CUST-123"
+  key: string;
   summary: string;
-  statusName: string; // "In Progress"
-  statusCategory: string; // "indeterminate" | "new" | "done"
+  statusName: string;
+  statusCategory: string; // "done" | "indeterminate" | "new"
   assignee: JiraAssignee | null;
-  url: string; // browse link
-  updated: string | null; // ISO
+  url: string;
+  updated: string | null;
 };
 
 // ---- module-level cache --------------------------------------------------
@@ -53,10 +63,96 @@ export function invalidateJiraCache(): void {
   CACHE = null;
 }
 
-// ---- main fetch ----------------------------------------------------------
-export async function getOpenJiraIssues(): Promise<{ issues: JiraIssue[] }> {
+// ---- HTTP helpers --------------------------------------------------------
+async function fetchClassicSearch(
+  jql: string,
+  startAt: number,
+  maxResults: number
+): Promise<{ status: number; ok: boolean; body: any; text?: string }> {
+  const u = new URL(`${JIRA_BASE}/rest/api/3/search`);
+  u.searchParams.set("jql", jql);
+  u.searchParams.set("startAt", String(startAt));
+  u.searchParams.set("maxResults", String(maxResults));
+  u.searchParams.set("fields", "summary,status,assignee,updated");
+
+  const r = await fetch(u.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: authHeader(),
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  const text = await r.text();
+  let body: any = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  return { status: r.status, ok: r.ok, body, text };
+}
+
+async function fetchEnhancedSearch(
+  jql: string,
+  nextPageToken: string | undefined,
+  maxResults: number
+): Promise<{ status: number; ok: boolean; body: any; text?: string }> {
+  const body: Record<string, unknown> = {
+    jql,
+    fields: ["summary", "status", "assignee", "updated"],
+    maxResults,
+  };
+  if (nextPageToken) body.nextPageToken = nextPageToken;
+
+  const r = await fetch(`${JIRA_BASE}/rest/api/3/search/jql`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(),
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const text = await r.text();
+  let parsed: any = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
+  return { status: r.status, ok: r.ok, body: parsed, text };
+}
+
+function rawIssueToJiraIssue(it: any): JiraIssue {
+  const f = it?.fields ?? {};
+  const a = f.assignee;
+  return {
+    key: String(it.key ?? ""),
+    summary: String(f.summary ?? ""),
+    statusName: String(f.status?.name ?? ""),
+    statusCategory: String(f.status?.statusCategory?.key ?? "").toLowerCase(),
+    assignee: a
+      ? {
+          accountId: String(a.accountId ?? ""),
+          displayName: a.displayName ?? null,
+          emailAddress: a.emailAddress ?? null,
+        }
+      : null,
+    url: `${JIRA_BASE}/browse/${it.key}`,
+    updated: f.updated ?? null,
+  };
+}
+
+// ---- main fetch (open issues = not in statusCategory "done") -------------
+export async function getOpenJiraIssues(): Promise<{
+  issues: JiraIssue[];
+  source: "classic" | "enhanced";
+  rawCount: number; // total returned by Jira before "Done" filter
+}> {
   if (CACHE && Date.now() - CACHE.at < TTL_MS) {
-    return { issues: CACHE.issues };
+    return { issues: CACHE.issues, source: "classic", rawCount: CACHE.issues.length };
   }
   if (!jiraConfigured()) {
     throw new Error(
@@ -64,65 +160,174 @@ export async function getOpenJiraIssues(): Promise<{ issues: JiraIssue[] }> {
     );
   }
 
-  const jql = `project = ${JIRA_PROJECT_KEY} AND statusCategory != Done ORDER BY updated DESC`;
-  const issues: JiraIssue[] = [];
+  // Pull every issue in the project — we filter Done in JS so we don't
+  // depend on JQL syntax quirks.
+  const jql = `project = "${JIRA_PROJECT_KEY}" ORDER BY updated DESC`;
+  const allRaw: any[] = [];
+  let source: "classic" | "enhanced" = "classic";
 
-  // The enhanced search endpoint uses a `nextPageToken` cursor instead of startAt.
-  let nextPageToken: string | undefined = undefined;
-  // Defensive hard limit so we never spin forever on a misconfigured response.
-  for (let page = 0; page < 50; page++) {
-    const body: Record<string, unknown> = {
-      jql,
-      fields: ["summary", "status", "assignee", "updated"],
-      maxResults: 100,
-    };
-    if (nextPageToken) body.nextPageToken = nextPageToken;
-
-    const r = await fetch(`${JIRA_BASE}/rest/api/3/search/jql`, {
-      method: "POST",
-      headers: {
-        Authorization: authHeader(),
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      throw new Error(
-        `Jira search failed (${r.status} ${r.statusText}): ${txt.slice(0, 300)}`
-      );
+  // Try classic first.
+  try {
+    let startAt = 0;
+    const pageSize = 100;
+    for (let page = 0; page < 50; page++) {
+      const r = await fetchClassicSearch(jql, startAt, pageSize);
+      if (!r.ok) {
+        if (r.status === 410 || r.status === 404) {
+          // Classic was removed on this site — fall through to enhanced.
+          source = "enhanced";
+          allRaw.length = 0;
+          throw new Error("classic-gone");
+        }
+        const msg =
+          (r.body && (r.body.errorMessages?.join("; ") || r.body.message)) ||
+          r.text ||
+          `Jira classic search failed (HTTP ${r.status})`;
+        throw new Error(`Jira search ${r.status}: ${String(msg).slice(0, 300)}`);
+      }
+      const issuesPage: any[] = Array.isArray(r.body?.issues) ? r.body.issues : [];
+      allRaw.push(...issuesPage);
+      const total: number = Number(r.body?.total ?? allRaw.length);
+      startAt += issuesPage.length;
+      if (issuesPage.length === 0) break;
+      if (startAt >= total) break;
     }
-
-    const j: any = await r.json();
-    const raw: any[] = Array.isArray(j.issues) ? j.issues : [];
-    for (const it of raw) {
-      const f = it?.fields ?? {};
-      const a = f.assignee;
-      issues.push({
-        key: String(it.key ?? ""),
-        summary: String(f.summary ?? ""),
-        statusName: String(f.status?.name ?? ""),
-        statusCategory: String(f.status?.statusCategory?.key ?? ""),
-        assignee: a
-          ? {
-              accountId: String(a.accountId ?? ""),
-              displayName: a.displayName ?? null,
-              emailAddress: a.emailAddress ?? null,
-            }
-          : null,
-        url: `${JIRA_BASE}/browse/${it.key}`,
-        updated: f.updated ?? null,
-      });
+  } catch (e: any) {
+    if (e?.message !== "classic-gone") throw e;
+    // Fall through to enhanced endpoint.
+    let nextPageToken: string | undefined = undefined;
+    for (let page = 0; page < 50; page++) {
+      const r = await fetchEnhancedSearch(jql, nextPageToken, 100);
+      if (!r.ok) {
+        const msg =
+          (r.body && (r.body.errorMessages?.join("; ") || r.body.message)) ||
+          r.text ||
+          `Jira enhanced search failed (HTTP ${r.status})`;
+        throw new Error(
+          `Jira enhanced search ${r.status}: ${String(msg).slice(0, 300)}`
+        );
+      }
+      const issuesPage: any[] = Array.isArray(r.body?.issues) ? r.body.issues : [];
+      allRaw.push(...issuesPage);
+      if (r.body?.isLast === true) break;
+      if (!r.body?.nextPageToken) break;
+      nextPageToken = r.body.nextPageToken;
     }
-
-    if (j.isLast === true) break;
-    if (!j.nextPageToken) break;
-    nextPageToken = j.nextPageToken;
   }
 
+  const rawCount = allRaw.length;
+  const all = allRaw.map(rawIssueToJiraIssue);
+  // "Open" = statusCategory not "done".
+  const issues = all.filter((it) => it.statusCategory !== "done");
+
   CACHE = { at: Date.now(), issues };
-  return { issues };
+  return { issues, source, rawCount };
+}
+
+// ---- standalone health probe (used by /api/jira/debug) -------------------
+export async function jiraHealthProbe(): Promise<{
+  configured: boolean;
+  baseUrl: string;
+  email: string;
+  projectKey: string;
+  myself: { ok: boolean; status: number; body?: any; error?: string };
+  project: { ok: boolean; status: number; body?: any; error?: string };
+  classicSearchAny: { ok: boolean; status: number; total?: number; sample?: any[]; error?: string };
+  classicSearchOpen: { ok: boolean; status: number; total?: number; error?: string };
+}> {
+  const out: any = {
+    configured: jiraConfigured(),
+    baseUrl: JIRA_BASE,
+    email: JIRA_EMAIL,
+    projectKey: JIRA_PROJECT_KEY,
+    myself: { ok: false, status: 0 },
+    project: { ok: false, status: 0 },
+    classicSearchAny: { ok: false, status: 0 },
+    classicSearchOpen: { ok: false, status: 0 },
+  };
+
+  // /myself
+  try {
+    const r = await fetch(`${JIRA_BASE}/rest/api/3/myself`, {
+      headers: { Authorization: authHeader(), Accept: "application/json" },
+      cache: "no-store",
+    });
+    out.myself.status = r.status;
+    out.myself.ok = r.ok;
+    const j = await r.json().catch(() => null);
+    if (j) {
+      out.myself.body = {
+        emailAddress: j.emailAddress ?? null,
+        displayName: j.displayName ?? null,
+        accountId: j.accountId ?? null,
+      };
+    }
+  } catch (e: any) {
+    out.myself.error = e?.message ?? String(e);
+  }
+
+  // /project/{key}
+  try {
+    const r = await fetch(
+      `${JIRA_BASE}/rest/api/3/project/${encodeURIComponent(JIRA_PROJECT_KEY)}`,
+      {
+        headers: { Authorization: authHeader(), Accept: "application/json" },
+        cache: "no-store",
+      }
+    );
+    out.project.status = r.status;
+    out.project.ok = r.ok;
+    const j = await r.json().catch(() => null);
+    if (j) {
+      out.project.body = { key: j.key, name: j.name, id: j.id };
+    }
+  } catch (e: any) {
+    out.project.error = e?.message ?? String(e);
+  }
+
+  // classic search — every issue
+  try {
+    const r = await fetchClassicSearch(
+      `project = "${JIRA_PROJECT_KEY}" ORDER BY updated DESC`,
+      0,
+      5
+    );
+    out.classicSearchAny.status = r.status;
+    out.classicSearchAny.ok = r.ok;
+    if (r.ok) {
+      out.classicSearchAny.total = r.body?.total ?? null;
+      out.classicSearchAny.sample = (r.body?.issues ?? []).map((it: any) => ({
+        key: it.key,
+        status: it.fields?.status?.name,
+        statusCategory: it.fields?.status?.statusCategory?.key,
+        assignee: it.fields?.assignee?.displayName ?? null,
+      }));
+    } else {
+      out.classicSearchAny.error =
+        r.body?.errorMessages?.join("; ") ?? r.text ?? `HTTP ${r.status}`;
+    }
+  } catch (e: any) {
+    out.classicSearchAny.error = e?.message ?? String(e);
+  }
+
+  // classic search — open only (statusCategory != Done)
+  try {
+    const r = await fetchClassicSearch(
+      `project = "${JIRA_PROJECT_KEY}" AND statusCategory != Done`,
+      0,
+      0
+    );
+    out.classicSearchOpen.status = r.status;
+    out.classicSearchOpen.ok = r.ok;
+    if (r.ok) {
+      out.classicSearchOpen.total = r.body?.total ?? null;
+    } else {
+      out.classicSearchOpen.error =
+        r.body?.errorMessages?.join("; ") ?? r.text ?? `HTTP ${r.status}`;
+    }
+  } catch (e: any) {
+    out.classicSearchOpen.error = e?.message ?? String(e);
+  }
+
+  return out;
 }
