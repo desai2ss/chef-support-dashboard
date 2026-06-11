@@ -20,7 +20,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, schema } from "@/lib/db";
-import { sql, and, gte, lte, eq } from "drizzle-orm";
+import { sql, and, gte, lte, eq, notInArray } from "drizzle-orm";
+import { SITES } from "@/lib/sites-config";
+
+// Sites that should never appear in Metrics output even if rows exist in DB.
+const EXCLUDED_SITES = SITES.filter((s) => s.excludeFromMetrics).map(
+  (s) => s.name
+);
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -68,7 +74,23 @@ export async function GET(req: Request) {
     lte(schema.dailyMetrics.date, to),
   ];
   if (siteFilter) {
+    // If the user explicitly asked for an excluded site, return empty.
+    if (EXCLUDED_SITES.includes(siteFilter)) {
+      return NextResponse.json({
+        ok: true,
+        grain,
+        from,
+        to,
+        site: siteFilter,
+        rows: [],
+        daily: [],
+        excluded: true,
+      });
+    }
     whereClauses.push(eq(schema.dailyMetrics.site, siteFilter));
+  } else if (EXCLUDED_SITES.length > 0) {
+    // Hide excluded sites from "All sites" rollup.
+    whereClauses.push(notInArray(schema.dailyMetrics.site, EXCLUDED_SITES));
   }
 
   try {

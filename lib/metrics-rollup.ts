@@ -17,6 +17,11 @@ import { ROBOTS, siteFor } from "@/lib/fleet-config";
 const AVAILABLE_HRS = new Map(
   SITES.map((s) => [s.name, s.availableHrsPerDay])
 );
+// Sites marked excludeFromMetrics: their robots are skipped in the rollup
+// so daily_metrics never gets new rows for them.
+const EXCLUDED_SITES = new Set(
+  SITES.filter((s) => s.excludeFromMetrics).map((s) => s.name)
+);
 
 // Map hostname -> { sn, site }
 const HOSTNAME_LOOKUP = new Map(
@@ -192,6 +197,8 @@ export type RollupResult = {
   unknownHostnames: string[];
   // Sessions whose duration exceeded availableHrsPerDay × 1.5 and were capped.
   cappedSessions: number;
+  // Sessions skipped because their site is flagged excludeFromMetrics.
+  excludedSiteSessions: number;
 };
 
 export async function runRollup(
@@ -213,6 +220,7 @@ export async function runRollup(
   };
   const aggregated = new Map<string, Agg>();
 
+  let excludedSiteSessions = 0;
   for (const sess of sessions) {
     const robot = HOSTNAME_LOOKUP.get(sess.hostname);
     if (!robot) {
@@ -221,6 +229,11 @@ export async function runRollup(
       continue;
     }
     const site = siteFor(sess.customer_id, sess.hostname) ?? robot.site;
+    // Skip sites flagged excludeFromMetrics — they don't get rolled up.
+    if (EXCLUDED_SITES.has(site)) {
+      excludedSiteSessions++;
+      continue;
+    }
     const availHrs = AVAILABLE_HRS.get(site);
     // Cap this session at (availHrsPerDay × 1.5). Default to 24h when site
     // is unknown so a single bogus session can't blow up the total.
@@ -287,12 +300,23 @@ export async function runRollup(
     written += batch.length;
   }
 
+  // Best-effort cleanup: remove any pre-existing rows for excluded sites
+  // (left over from before the exclusion flag was set).
+  if (EXCLUDED_SITES.size > 0) {
+    for (const site of EXCLUDED_SITES) {
+      await db.execute(
+        sql`DELETE FROM daily_metrics WHERE site = ${site} AND date BETWEEN ${from} AND ${to}`
+      );
+    }
+  }
+
   return {
     from,
     to,
     rowsScanned: sessions.length,
     rowsWritten: written,
     rowsSkipped: skipped,
+    excludedSiteSessions,
     unknownHostnames: Array.from(unknown).sort(),
     cappedSessions,
   };

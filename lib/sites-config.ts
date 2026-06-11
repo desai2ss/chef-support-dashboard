@@ -22,6 +22,12 @@ export type SiteInfo = {
   // Optional: only include hostnames in this list (for sites that share a
   // BQ customer_id with another site, e.g. Amy's split).
   bqHostnameWhitelist?: string[];
+  // Optional: if true, this site is excluded from the Metrics tab —
+  // its sessions are skipped in the rollup, its rows hidden from the
+  // read API, and it doesn't appear in the site filter dropdown. Use
+  // this for sites with data quality issues or sites that shouldn't be
+  // counted in fleet averages yet.
+  excludeFromMetrics?: boolean;
 };
 
 const AMYS_MEDFORD_HOSTS = [
@@ -88,18 +94,22 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "CookUnity LAX",
-    operatingHours: "Fri-Tue · 10 hrs/day (closed Wed/Thu)",
-    availableHrsPerDay: 10,
+    operatingHours: "Fri-Tue · 8 hrs/day (closed Wed/Thu)",
+    availableHrsPerDay: 8,
     pylonNames: ["CookUnity LAX"],
     bqCustomerIds: ["cookunity"],
     bqHostnameWhitelist: ["asimo-pc", "butter-pc", "preston-pc", "escaflowne-pc"],
   },
   {
+    // Excluded from the Metrics tab — rollup skips these robots, read API
+    // hides them, and they don't appear in the site dropdown. Still listed
+    // in fleet-config so Fleet/Tickets/Sites views show them normally.
     name: "CookUnity NYC",
     operatingHours: "Fri-Wed (closed Thu)",
-    availableHrsPerDay: 8, // assume same as LAX; correct in sites-config if different
+    availableHrsPerDay: 8,
     pylonNames: ["CookUnity NYC"],
     bqCustomerIds: ["cookunity"],
     bqHostnameWhitelist: ["myrmidon-pc", "david-pc"],
+    excludeFromMetrics: true,
   },
 ];

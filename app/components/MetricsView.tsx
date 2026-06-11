@@ -224,7 +224,7 @@ export default function MetricsView({ editor }: { editor: boolean }) {
               className="bg-card border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
             >
               <option value="">All sites</option>
-              {SITES.map((s) => (
+              {SITES.filter((s) => !s.excludeFromMetrics).map((s) => (
                 <option key={s.name} value={s.name}>
                   {s.name}
                 </option>
