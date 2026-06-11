@@ -75,14 +75,14 @@ export const SITES: SiteInfo[] = [
   {
     name: "Bonduelle",
     operatingHours: "Mon-Sat · 6:30am-2:30pm",
-    availableHrsPerDay: 8,
+    availableHrsPerDay: 13,
     pylonNames: ["Bonduelle"],
     bqCustomerIds: ["bonduelle"],
   },
   {
     name: "POH",
     operatingHours: "Mon-Fri · 7:00am-3:00pm",
-    availableHrsPerDay: 2,
+    availableHrsPerDay: 4,
     pylonNames: ["POH"],
     bqCustomerIds: ["openhand"],
   },

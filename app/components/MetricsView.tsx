@@ -344,7 +344,213 @@ export default function MetricsView({ editor }: { editor: boolean }) {
           </div>
         )}
       </section>
+
+      {/* Methodology — explains exactly how every number is calculated */}
+      <MethodologySection />
     </div>
+  );
+}
+
+function MethodologySection() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="mt-5 rounded-xl border border-line bg-card">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex justify-between items-center px-5 py-4 text-left hover:bg-cream/60"
+      >
+        <div>
+          <h2 className="text-base font-semibold">
+            How these metrics are calculated
+          </h2>
+          <div className="text-xs text-muted mt-0.5">
+            Data sources, formulas, and gotchas for every number on this page
+          </div>
+        </div>
+        <span className="text-muted text-lg" aria-hidden>
+          {open ? "−" : "+"}
+        </span>
+      </button>
+      {open ? (
+        <div className="px-5 pb-5 text-sm text-ink space-y-4 border-t border-line">
+          {/* Utilization */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">Utilization %</h3>
+            <p className="text-muted">
+              For each (robot, date), util % ={" "}
+              <code className="text-[12px] bg-cream px-1 py-0.5 rounded">
+                production_hours / availableHrsPerDay × 100
+              </code>
+              .
+            </p>
+            <ul className="text-muted text-[13px] mt-1 ml-5 list-disc space-y-1">
+              <li>
+                <code className="text-[12px]">production_hours</code> comes
+                from BigQuery{" "}
+                <code className="text-[12px]">
+                  chef-robotics-infra.coremetrics_staging.sessions_v0
+                </code>{" "}
+                — we sum the duration of every session where{" "}
+                <code className="text-[12px]">label = &apos;PRODUCTION&apos;</code>{" "}
+                for that robot on that date.
+              </li>
+              <li>
+                Stuck sessions (where{" "}
+                <code className="text-[12px]">end_time − start_time &gt; 16h</code>
+                ) are filtered out — they&apos;re almost always orphaned
+                sessions from a crashed agent and inflate the number.
+              </li>
+              <li>
+                <code className="text-[12px]">availableHrsPerDay</code> is a
+                per-site constant in{" "}
+                <code className="text-[12px]">lib/sites-config.ts</code>{" "}
+                representing the scheduled shift length. Edit it there if a
+                site changes its hours.
+              </li>
+              <li>
+                Util % can exceed 100% when a robot runs overtime relative to
+                its scheduled hours — same convention as the VC DD Stats
+                spreadsheet (e.g. Amy&apos;s MED often hits 130-150%).
+              </li>
+              <li>
+                The bucket (day / week / month) rolls up util as a simple
+                average across the matching days for each site.
+              </li>
+            </ul>
+          </div>
+
+          {/* Uptime */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">Uptime %</h3>
+            <p className="text-muted">
+              Defaults to <strong>100%</strong> for every (robot, date) cell.
+              Editors lower it manually via the downtime modal (Phase 2),
+              which requires linking a Pylon ticket explaining the downtime —
+              so every reduction below 100 has an auditable cause.
+            </p>
+            <ul className="text-muted text-[13px] mt-1 ml-5 list-disc space-y-1">
+              <li>
+                Stored in column{" "}
+                <code className="text-[12px]">uptime_pct</code> of the{" "}
+                <code className="text-[12px]">daily_metrics</code> table in
+                Neon Postgres.
+              </li>
+              <li>
+                The BigQuery rollup never touches uptime — only the editor
+                does. Re-running the backfill won&apos;t erase manual entries.
+              </li>
+              <li>
+                Bucket rollups average uptime across days. So if a robot was
+                100% all week except one day at 50%, weekly avg = 92.9%.
+              </li>
+            </ul>
+          </div>
+
+          {/* Servings */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">Total servings</h3>
+            <p className="text-muted">
+              <strong>Currently a placeholder.</strong> The VC DD spreadsheet
+              tracks servings counts but we haven&apos;t identified which BQ
+              column or table they come from yet — possibly{" "}
+              <code className="text-[12px]">deposits</code> on{" "}
+              <code className="text-[12px]">sessions_v0</code>, or a separate
+              table. Until that&apos;s wired, the column reads{" "}
+              <code className="text-[12px]">null</code> and the KPI shows{" "}
+              <em>—</em>.
+            </p>
+          </div>
+
+          {/* Data flow */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">Data flow &amp; freshness</h3>
+            <ol className="text-muted text-[13px] ml-5 list-decimal space-y-1">
+              <li>
+                <strong>BigQuery sessions_v0</strong> — raw session records
+                streamed in by each robot&apos;s Datadog agent.
+              </li>
+              <li>
+                <strong>/api/metrics/backfill</strong> — admin-only endpoint
+                that queries BQ for any date range and upserts into{" "}
+                <code className="text-[12px]">daily_metrics</code>. Run
+                manually when configs change (e.g. you just bumped POH from 2
+                to 4 hrs/day; re-running the backfill recalculates util_pct
+                for every existing row).
+              </li>
+              <li>
+                <strong>daily_metrics (Neon Postgres)</strong> — one row per
+                (sn, date). Read by every chart and table on this page via{" "}
+                <code className="text-[12px]">/api/metrics</code>.
+              </li>
+              <li>
+                <strong>Phase 3 cron (coming):</strong> nightly auto-run of
+                the backfill for yesterday&apos;s date. Until that ships, you
+                need to manually trigger backfill to pick up new data.
+              </li>
+            </ol>
+          </div>
+
+          {/* Available hours table */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">
+              Available hours per day, by site
+            </h3>
+            <p className="text-muted text-[13px] mb-2">
+              The denominator for utilization. Edit in{" "}
+              <code className="text-[12px]">lib/sites-config.ts</code> and
+              re-run the backfill to recalculate.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="text-[13px] border border-line rounded-md">
+                <thead className="bg-cream/40">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-medium">Site</th>
+                    <th className="text-right px-3 py-1.5 font-medium">
+                      Avail hrs/day
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink">
+                  {SITES.map((s) => (
+                    <tr key={s.name} className="border-t border-line">
+                      <td className="px-3 py-1">{s.name}</td>
+                      <td className="px-3 py-1 text-right tabular-nums">
+                        {s.availableHrsPerDay}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Gotchas */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">Known gotchas</h3>
+            <ul className="text-muted text-[13px] ml-5 list-disc space-y-1">
+              <li>
+                <strong>Cross-midnight sessions:</strong> a session starting
+                11pm Mon and ending 3am Tue is counted entirely on Monday
+                (the start date). For typical shift patterns this is &lt; 1%
+                error.
+              </li>
+              <li>
+                <strong>Days with no data render blank,</strong> not 0%. The
+                table cell is &ldquo;—&rdquo;. If a robot is scheduled but
+                has zero sessions, that&apos;s genuinely missing — likely a
+                non-production day or a robot that wasn&apos;t powered on.
+              </li>
+              <li>
+                <strong>Util &gt;&gt; 100% almost always means BQ data
+                quality:</strong> overlapping sessions, stuck agents, or
+                mislabeled sessions. The 16-hour filter catches the worst,
+                but extreme values (300%+) deserve investigation in BQ.
+              </li>
+            </ul>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
