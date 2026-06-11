@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SITES } from "@/lib/sites-config";
+import { ROBOTS } from "@/lib/fleet-config";
 
 type RollupRow = {
   bucket: string; // YYYY-MM-DD | YYYY-Wxx | YYYY-MM
@@ -16,6 +17,17 @@ type RollupRow = {
   robotsCount: number;
 };
 
+type DailyRow = {
+  sn: number;
+  date: string;
+  site: string;
+  utilPct: number | null;
+  uptimePct: number | null;
+  servings: number | null;
+  uptimePylonTicket: string | null;
+  uptimeNote: string | null;
+};
+
 type ApiResponse = {
   ok?: boolean;
   grain: "day" | "week" | "month";
@@ -23,7 +35,7 @@ type ApiResponse = {
   to: string;
   site: string | null;
   rows: RollupRow[];
-  daily?: any[];
+  daily?: DailyRow[];
   error?: string;
 };
 
@@ -66,6 +78,14 @@ export default function MetricsView({ editor }: { editor: boolean }) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0); // bump to refetch
+  // Cell selection state for the per-robot daily editor.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<{ sn: number; date: string } | null>(
+    null
+  );
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorBanner, setEditorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -89,7 +109,13 @@ export default function MetricsView({ editor }: { editor: boolean }) {
     return () => {
       alive = false;
     };
-  }, [from, to, grain, siteFilter]);
+  }, [from, to, grain, siteFilter, refreshKey]);
+
+  // Clear selection when the user switches view / filter.
+  useEffect(() => {
+    setSelected(new Set());
+    setAnchor(null);
+  }, [grain, siteFilter, from, to]);
 
   // Compute KPI totals + unique buckets/sites for the chart and table.
   const { fleetUtil, fleetUptime, totalServings, buckets, sitesShown } =
@@ -345,8 +371,492 @@ export default function MetricsView({ editor }: { editor: boolean }) {
         )}
       </section>
 
+      {/* Per-robot daily uptime editor — only when grain=day AND site is selected */}
+      {grain === "day" && siteFilter ? (
+        <PerRobotEditor
+          site={siteFilter}
+          from={from}
+          to={to}
+          daily={data?.daily ?? []}
+          editor={editor}
+          selected={selected}
+          setSelected={setSelected}
+          anchor={anchor}
+          setAnchor={setAnchor}
+          onEdit={() => setEditorOpen(true)}
+          banner={editorBanner}
+        />
+      ) : null}
+
+      {/* Edit Downtime modal */}
+      {editorOpen ? (
+        <EditDowntimeModal
+          selectedKeys={selected}
+          onClose={() => setEditorOpen(false)}
+          onSaved={(msg) => {
+            setEditorOpen(false);
+            setEditorBanner(msg);
+            setSelected(new Set());
+            setRefreshKey((k) => k + 1);
+            setTimeout(() => setEditorBanner(null), 5000);
+          }}
+        />
+      ) : null}
+
       {/* Methodology — explains exactly how every number is calculated */}
       <MethodologySection />
+    </div>
+  );
+}
+
+// ---- Per-robot daily editor (selection + Edit-downtime button) -----------
+function PerRobotEditor({
+  site,
+  from,
+  to,
+  daily,
+  editor,
+  selected,
+  setSelected,
+  anchor,
+  setAnchor,
+  onEdit,
+  banner,
+}: {
+  site: string;
+  from: string;
+  to: string;
+  daily: DailyRow[];
+  editor: boolean;
+  selected: Set<string>;
+  setSelected: (s: Set<string>) => void;
+  anchor: { sn: number; date: string } | null;
+  setAnchor: (a: { sn: number; date: string } | null) => void;
+  onEdit: () => void;
+  banner: string | null;
+}) {
+  // Build list of all dates in the range (YYYY-MM-DD strings)
+  const dates = useMemo(() => {
+    const out: string[] = [];
+    const start = new Date(from + "T00:00:00Z");
+    const end = new Date(to + "T00:00:00Z");
+    const cur = new Date(start);
+    while (cur <= end) {
+      const y = cur.getUTCFullYear();
+      const m = String(cur.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(cur.getUTCDate()).padStart(2, "0");
+      out.push(`${y}-${m}-${d}`);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return out;
+  }, [from, to]);
+
+  // Robots at this site (from fleet-config — always shows full roster even
+  // if some have no BQ rows). Sorted by SN.
+  const robots = useMemo(
+    () => ROBOTS.filter((r) => r.site === site).sort((a, b) => a.sn - b.sn),
+    [site]
+  );
+
+  // (sn|date) -> DailyRow lookup
+  const cellMap = useMemo(() => {
+    const m = new Map<string, DailyRow>();
+    for (const d of daily) m.set(`${d.sn}|${d.date}`, d);
+    return m;
+  }, [daily]);
+
+  function cellKey(sn: number, date: string) {
+    return `${sn}|${date}`;
+  }
+
+  function handleCellClick(
+    sn: number,
+    date: string,
+    e: React.MouseEvent
+  ) {
+    if (!editor) return;
+    const k = cellKey(sn, date);
+    const next = new Set(selected);
+    if (e.shiftKey && anchor) {
+      // Range select: rectangle from anchor (sn, date) to (sn, date)
+      const snList = robots.map((r) => r.sn);
+      const snStart = snList.indexOf(anchor.sn);
+      const snEnd = snList.indexOf(sn);
+      const dStart = dates.indexOf(anchor.date);
+      const dEnd = dates.indexOf(date);
+      if (snStart >= 0 && snEnd >= 0 && dStart >= 0 && dEnd >= 0) {
+        const sMin = Math.min(snStart, snEnd);
+        const sMax = Math.max(snStart, snEnd);
+        const dMin = Math.min(dStart, dEnd);
+        const dMax = Math.max(dStart, dEnd);
+        next.clear();
+        for (let i = sMin; i <= sMax; i++) {
+          for (let j = dMin; j <= dMax; j++) {
+            next.add(cellKey(snList[i], dates[j]));
+          }
+        }
+      }
+    } else if (e.metaKey || e.ctrlKey) {
+      // Toggle add/remove
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      setAnchor({ sn, date });
+    } else {
+      // Single
+      next.clear();
+      next.add(k);
+      setAnchor({ sn, date });
+    }
+    setSelected(next);
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+    setAnchor(null);
+  }
+
+  function selectAllDowntime() {
+    const next = new Set<string>();
+    for (const d of daily) {
+      if ((d.uptimePct ?? 100) < 100) next.add(cellKey(d.sn, d.date));
+    }
+    setSelected(next);
+  }
+
+  // Visual style for a cell
+  function cellStyle(row: DailyRow | undefined): string {
+    if (!row) return "bg-cream/30 text-muted/40";
+    const u = row.uptimePct ?? 100;
+    if (u >= 100) return "bg-emerald-50 text-emerald-900";
+    if (u >= 75) return "bg-amber-50 text-amber-900";
+    return "bg-red-50 text-red-900";
+  }
+
+  return (
+    <section className="mb-5 rounded-xl border border-line bg-card p-5">
+      <div className="flex justify-between items-end mb-3 flex-wrap gap-3">
+        <div>
+          <h2 className="text-base font-semibold">
+            Per-robot daily uptime — {site}
+          </h2>
+          <div className="text-xs text-muted mt-0.5">
+            {editor ? (
+              <>
+                Click a cell to select it. <strong>Shift+click</strong> for
+                rectangular range. <strong>⌘/Ctrl+click</strong> to
+                add/remove individual cells. Then click <em>Edit downtime</em>
+                .
+              </>
+            ) : (
+              <>
+                Read-only — only editors can change uptime. Cells below 100%
+                show the linked Pylon ticket.
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {selected.size > 0 ? (
+            <>
+              <span className="text-xs text-muted">
+                {selected.size} cell{selected.size === 1 ? "" : "s"} selected
+              </span>
+              <button
+                onClick={clearSelection}
+                className="text-xs px-2 py-1 rounded-md border border-line bg-card hover:bg-cream"
+              >
+                Clear
+              </button>
+              <button
+                onClick={onEdit}
+                disabled={!editor}
+                className={
+                  "text-xs px-3 py-1 rounded-md font-medium " +
+                  (editor
+                    ? "bg-ink text-cream hover:opacity-90"
+                    : "bg-cream text-muted cursor-not-allowed")
+                }
+              >
+                Edit downtime
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={selectAllDowntime}
+              disabled={!editor}
+              className={
+                "text-xs px-2 py-1 rounded-md border border-line " +
+                (editor
+                  ? "bg-card hover:bg-cream"
+                  : "bg-cream text-muted cursor-not-allowed")
+              }
+              title="Select all cells already marked down (uptime &lt; 100%)"
+            >
+              Select existing downtime
+            </button>
+          )}
+        </div>
+      </div>
+
+      {banner ? (
+        <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {banner}
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-muted">
+              <th className="text-left py-2 px-2 sticky left-0 bg-card font-medium">
+                Robot
+              </th>
+              {dates.map((d) => (
+                <th
+                  key={d}
+                  className="text-center py-2 px-1 font-medium tabular-nums"
+                  title={d}
+                >
+                  {d.slice(5)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {robots.map((r) => (
+              <tr key={r.sn} className="border-t border-line">
+                <td className="py-1 px-2 sticky left-0 bg-card text-ink font-medium whitespace-nowrap">
+                  SN{r.sn}{" "}
+                  <span className="text-muted">
+                    {r.nickname}
+                    {r.spare ? " · spare" : ""}
+                  </span>
+                </td>
+                {dates.map((d) => {
+                  const k = cellKey(r.sn, d);
+                  const row = cellMap.get(k);
+                  const isSelected = selected.has(k);
+                  const u = row?.uptimePct ?? 100;
+                  const hasDowntime = u < 100;
+                  return (
+                    <td
+                      key={d}
+                      onClick={(e) => handleCellClick(r.sn, d, e)}
+                      className={
+                        "py-1 px-1 text-center align-middle border-l border-line/40 select-none " +
+                        (editor ? "cursor-pointer hover:brightness-95 " : "") +
+                        cellStyle(row) +
+                        " " +
+                        (isSelected
+                          ? "ring-2 ring-inset ring-blue-500 z-10 relative"
+                          : "")
+                      }
+                      title={
+                        row
+                          ? [
+                              row.utilPct != null
+                                ? `util ${row.utilPct.toFixed(0)}%`
+                                : "no util data",
+                              `uptime ${u.toFixed(0)}%`,
+                              row.uptimePylonTicket
+                                ? `ticket #${row.uptimePylonTicket}`
+                                : null,
+                              row.uptimeNote ? `note: ${row.uptimeNote}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : "no data"
+                      }
+                    >
+                      <div className="tabular-nums text-[11px]">
+                        {u.toFixed(0)}
+                      </div>
+                      {hasDowntime && row?.uptimePylonTicket ? (
+                        <div className="text-[9px] text-muted leading-tight">
+                          #{row.uptimePylonTicket}
+                        </div>
+                      ) : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 text-[11px] text-muted">
+        Legend: <span className="px-1 bg-emerald-50 text-emerald-900">100</span>{" "}
+        full uptime ·{" "}
+        <span className="px-1 bg-amber-50 text-amber-900">75-99</span> partial ·{" "}
+        <span className="px-1 bg-red-50 text-red-900">&lt; 75</span> major
+        downtime · <span className="text-muted/60">grey</span> = no BQ data
+      </div>
+    </section>
+  );
+}
+
+// ---- Edit Downtime modal -------------------------------------------------
+function EditDowntimeModal({
+  selectedKeys,
+  onClose,
+  onSaved,
+}: {
+  selectedKeys: Set<string>;
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [uptimePct, setUptimePct] = useState<string>("0");
+  const [pylonTicket, setPylonTicket] = useState<string>("");
+  const [note, setNote] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const cells = useMemo(
+    () =>
+      Array.from(selectedKeys).map((k) => {
+        const [sn, date] = k.split("|");
+        return { sn: Number(sn), date };
+      }),
+    [selectedKeys]
+  );
+
+  async function save() {
+    setErr(null);
+    const u = Number(uptimePct);
+    if (!Number.isFinite(u) || u < 0 || u > 100) {
+      setErr("Uptime % must be a number from 0 to 100");
+      return;
+    }
+    if (u < 100 && !pylonTicket.trim()) {
+      setErr(
+        "A Pylon ticket # is required for any downtime entry. Type the issue number (e.g. 1234)."
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/metrics/uptime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cells,
+          uptimePct: u,
+          pylonTicket: pylonTicket.trim() || null,
+          note: note.trim() || null,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(j.error ?? `Save failed (HTTP ${res.status})`);
+        setSaving(false);
+        return;
+      }
+      const ticketLabel = pylonTicket.trim()
+        ? ` (ticket #${pylonTicket.trim()}${j.ticketTitle ? ` — ${j.ticketTitle}` : ""})`
+        : "";
+      onSaved(`Updated ${j.rowsAffected} cells${ticketLabel}.`);
+    } catch (e: any) {
+      setErr(String(e?.message ?? e));
+      setSaving(false);
+    }
+  }
+
+  // Quick presets so common downtime is one click
+  const presets = [
+    { label: "0% (full day)", value: 0 },
+    { label: "25%", value: 25 },
+    { label: "50%", value: 50 },
+    { label: "75%", value: 75 },
+    { label: "100% (clear)", value: 100 },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 bg-ink/40 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card rounded-xl border border-line shadow-xl w-full max-w-md p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold mb-1">Edit downtime</h3>
+        <p className="text-xs text-muted mb-4">
+          Applying to {cells.length} cell{cells.length === 1 ? "" : "s"}. All
+          cells get the same uptime %, ticket, and note. Edit cells separately
+          if they have different root causes.
+        </p>
+
+        <label className="block text-[10px] uppercase tracking-wider text-muted mb-1">
+          Uptime % (0 = full day down, 100 = no downtime)
+        </label>
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={5}
+          value={uptimePct}
+          onChange={(e) => setUptimePct(e.target.value)}
+          className="w-full bg-card border border-line rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-zinc-400 mb-2"
+        />
+        <div className="flex gap-1 mb-4 flex-wrap">
+          {presets.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => setUptimePct(String(p.value))}
+              className="text-xs px-2 py-1 rounded-md border border-line bg-card hover:bg-cream"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-[10px] uppercase tracking-wider text-muted mb-1">
+          Pylon ticket # {uptimePct !== "100" ? "(required)" : "(optional)"}
+        </label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={pylonTicket}
+          onChange={(e) => setPylonTicket(e.target.value)}
+          placeholder="e.g. 1234"
+          className="w-full bg-card border border-line rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-zinc-400 mb-4"
+        />
+
+        <label className="block text-[10px] uppercase tracking-wider text-muted mb-1">
+          Note (optional)
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="Short context shown on hover…"
+          className="w-full bg-card border border-line rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-zinc-400 mb-4"
+        />
+
+        {err ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {err}
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="text-sm px-3 py-1.5 rounded-md border border-line bg-card hover:bg-cream"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="text-sm px-4 py-1.5 rounded-md bg-ink text-cream font-medium hover:opacity-90 disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -522,6 +1032,90 @@ function MethodologySection() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* BigQuery session labels */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">
+              BigQuery session labels (what counts as production)
+            </h3>
+            <p className="text-muted text-[13px] mb-2">
+              Every row in <code className="text-[12px]">sessions_v0</code>{" "}
+              has a <code className="text-[12px]">label</code> field. Only{" "}
+              <code className="text-[12px]">PRODUCTION</code> counts toward
+              the util numerator. Snapshot from the last 30 days:
+            </p>
+            <div className="overflow-x-auto">
+              <table className="text-[13px] border border-line rounded-md">
+                <thead className="bg-cream/40">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-medium">Label</th>
+                    <th className="text-right px-3 py-1.5 font-medium">
+                      Sessions
+                    </th>
+                    <th className="text-right px-3 py-1.5 font-medium">
+                      Total hrs
+                    </th>
+                    <th className="text-left px-3 py-1.5 font-medium">
+                      In util?
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink">
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">PRODUCTION</td>
+                    <td className="px-3 py-1 text-right tabular-nums">7,633</td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      13,707
+                    </td>
+                    <td className="px-3 py-1 text-emerald-700">✓ counted</td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1">SETUP</td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      10,040
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums">9,735</td>
+                    <td className="px-3 py-1 text-muted">
+                      excluded (changeover / cleaning)
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1">TESTING</td>
+                    <td className="px-3 py-1 text-right tabular-nums">1,694</td>
+                    <td className="px-3 py-1 text-right tabular-nums">1,750</td>
+                    <td className="px-3 py-1 text-muted">
+                      excluded (engineering / QA)
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1">STARTUP</td>
+                    <td className="px-3 py-1 text-right tabular-nums">5,471</td>
+                    <td className="px-3 py-1 text-right tabular-nums">41</td>
+                    <td className="px-3 py-1 text-muted">
+                      excluded (boot log)
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1">END_OF_DAY</td>
+                    <td className="px-3 py-1 text-right tabular-nums">578</td>
+                    <td className="px-3 py-1 text-right tabular-nums">5</td>
+                    <td className="px-3 py-1 text-muted">
+                      excluded (shutdown log)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-muted text-[12px] mt-2">
+              Numbers are a Jun 2026 snapshot. If you ever want to change
+              what counts, edit <code className="text-[12px]">lib/metrics-rollup.ts</code>{" "}
+              — the filter is{" "}
+              <code className="text-[12px]">
+                IF(label = &apos;PRODUCTION&apos;, duration_sec, 0)
+              </code>
+              .
+            </p>
           </div>
 
           {/* Gotchas */}
