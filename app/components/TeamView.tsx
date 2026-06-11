@@ -52,10 +52,8 @@ type JiraApiResponse = {
   message?: string;
 };
 
-const WORKING_KEY = "chef-support-team-working-v1";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-type WorkingOn = Record<string, { task: string; status?: string; updated?: string }>;
 type Calendar = Record<string, string>; // key = "<memberId>|YYYY-MM-DD" -> note
 
 function fmtDate(d: Date): string {
@@ -87,7 +85,6 @@ function shortMonthDay(d: Date): string {
 export default function TeamView({ editor = false }: { editor?: boolean }) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [jiraData, setJiraData] = useState<JiraApiResponse | null>(null);
-  const [working, setWorking] = useState<WorkingOn>({});
   const [calendar, setCalendar] = useState<Calendar>({});
   const [calendarLoaded, setCalendarLoaded] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
@@ -138,19 +135,6 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
       alive = false;
     };
   }, []);
-
-  // Load + persist working
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(WORKING_KEY);
-      if (raw) setWorking(JSON.parse(raw));
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKING_KEY, JSON.stringify(working));
-    } catch {}
-  }, [working]);
 
   // Load calendar from server. Persists for everyone via Postgres
   // (replaces the old localStorage-only approach).
@@ -321,58 +305,6 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
             ) : null}
           </div>
         )}
-      </section>
-
-      {/* Manual data banner */}
-      <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 items-start">
-        <span className="text-amber-700 text-base leading-none mt-0.5">⚠</span>
-        <div className="text-sm text-amber-900">
-          &ldquo;Currently working on&rdquo; edits persist in this browser only
-          — closing the tab resets them. The Team calendar below is shared
-          across everyone signed in.
-        </div>
-      </div>
-
-      {/* Currently working on */}
-      <section className="mb-6 rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
-        <div className="flex justify-between items-baseline mb-3">
-          <h2 className="text-base font-semibold">Currently working on</h2>
-          <span className="text-xs text-muted">Click a cell to edit</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-muted">
-                <th className="text-left py-2 px-2 w-44 font-medium">Person</th>
-                <th className="text-left py-2 px-2 font-medium">Currently working on</th>
-                <th className="text-left py-2 px-2 w-32 font-medium">Status</th>
-                <th className="text-left py-2 px-2 w-32 font-medium">Last updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {TEAM.map((m) => (
-                <WorkingRow
-                  key={m.id}
-                  m={m}
-                  value={working[m.id]}
-                  onChange={(v) =>
-                    setWorking((prev) => ({
-                      ...prev,
-                      [m.id]: { ...v, updated: new Date().toISOString() },
-                    }))
-                  }
-                  onClear={() =>
-                    setWorking((prev) => {
-                      const n = { ...prev };
-                      delete n[m.id];
-                      return n;
-                    })
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
       </section>
 
       {/* Team calendar — single week with ‹ › navigation. Notes persist in
@@ -566,127 +498,6 @@ function BandwidthRow({
   );
 }
 
-function WorkingRow({
-  m,
-  value,
-  onChange,
-  onClear,
-}: {
-  m: TeamMember;
-  value?: { task: string; status?: string; updated?: string };
-  onChange: (v: { task: string; status?: string }) => void;
-  onClear: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draftTask, setDraftTask] = useState(value?.task ?? "");
-  const [draftStatus, setDraftStatus] = useState(value?.status ?? "");
-
-  function save() {
-    if (!draftTask.trim() && !draftStatus.trim()) {
-      onClear();
-    } else {
-      onChange({ task: draftTask, status: draftStatus });
-    }
-    setEditing(false);
-  }
-  function cancel() {
-    setDraftTask(value?.task ?? "");
-    setDraftStatus(value?.status ?? "");
-    setEditing(false);
-  }
-
-  const ago = (iso?: string) => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    const diffMs = Date.now() - d.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return "just now";
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    const diffDay = Math.floor(diffHr / 24);
-    return `${diffDay}d ago`;
-  };
-
-  return (
-    <tr className="border-t border-line">
-      <td className="py-2 px-2">
-        <div className="flex items-center gap-2">
-          <div
-            className={
-              "shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-semibold " +
-              m.colorClass
-            }
-          >
-            {m.initials}
-          </div>
-          <span className="text-sm text-ink">{m.name}</span>
-        </div>
-      </td>
-      {editing ? (
-        <>
-          <td className="py-2 px-2" colSpan={2}>
-            <div className="flex gap-2">
-              <input
-                value={draftTask}
-                onChange={(e) => setDraftTask(e.target.value)}
-                placeholder="What are they working on?"
-                className="flex-1 bg-card border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
-                autoFocus
-              />
-              <input
-                value={draftStatus}
-                onChange={(e) => setDraftStatus(e.target.value)}
-                placeholder="Status (optional)"
-                className="w-40 bg-card border border-line rounded-md px-2 py-1 text-sm focus:outline-none focus:border-zinc-400"
-              />
-            </div>
-          </td>
-          <td className="py-2 px-2">
-            <div className="flex gap-1 justify-end">
-              <button
-                onClick={cancel}
-                className="text-xs px-2 py-1 rounded-md border border-line bg-card hover:bg-cream"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={save}
-                className="text-xs px-3 py-1 rounded-md bg-ink text-white font-medium hover:opacity-90"
-              >
-                Save
-              </button>
-            </div>
-          </td>
-        </>
-      ) : (
-        <>
-          <td
-            className="py-2 px-2 text-sm cursor-pointer hover:bg-cream/60"
-            onClick={() => setEditing(true)}
-          >
-            {value?.task ? (
-              <span className="text-ink">{value.task}</span>
-            ) : (
-              <span className="text-muted italic">Click to add…</span>
-            )}
-          </td>
-          <td
-            className="py-2 px-2 text-sm cursor-pointer hover:bg-cream/60"
-            onClick={() => setEditing(true)}
-          >
-            {value?.status ? (
-              <span className="text-ink">{value.status}</span>
-            ) : (
-              <span className="text-muted">—</span>
-            )}
-          </td>
-          <td className="py-2 px-2 text-xs text-muted">{ago(value?.updated)}</td>
-        </>
-      )}
-    </tr>
-  );
-}
 
 function CalendarRow({
   m,
