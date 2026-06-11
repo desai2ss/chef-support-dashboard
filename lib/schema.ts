@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, pgEnum, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, real, timestamp, jsonb, pgEnum, primaryKey } from "drizzle-orm/pg-core";
 
 export const moduleStatus = pgEnum("module_status", [
   "on-track",
@@ -60,6 +60,32 @@ export const scheduleOverrides = pgTable(
   })
 );
 
+// Daily metrics — one row per (sn, date). `util_pct` and `servings` are
+// auto-populated by the BigQuery rollup (lib/metrics-rollup.ts). `uptime_pct`
+// defaults to 100 and only changes via the Metrics tab's downtime editor,
+// which requires a linked Pylon ticket to justify the change.
+export const dailyMetrics = pgTable(
+  "daily_metrics",
+  {
+    sn: integer("sn").notNull(),
+    date: text("date").notNull(), // YYYY-MM-DD
+    site: text("site").notNull(),
+    // From BigQuery sessions_v0 rollup. Null = no production data that day.
+    utilPct: real("util_pct"), // 0..200 (can exceed 100 for overtime)
+    productionHours: real("production_hours"), // 0..24+
+    servings: integer("servings"), // null until source is wired up
+    // Manual entries. Default = 100 (full uptime). Editor lowers via downtime modal.
+    uptimePct: real("uptime_pct").notNull().default(100),
+    uptimePylonTicket: text("uptime_pylon_ticket"),
+    uptimeNote: text("uptime_note"),
+    updatedBy: text("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.sn, t.date] }),
+  })
+);
+
 // Team calendar entries — one row per (team-member, date). Shared across
 // everyone logged in (replaces the old localStorage-only calendar). The
 // Team tab navigates one week at a time via ‹ › buttons; entries are kept
@@ -87,3 +113,5 @@ export type ScheduleOverride = typeof scheduleOverrides.$inferSelect;
 export type NewScheduleOverride = typeof scheduleOverrides.$inferInsert;
 export type TeamCalendarEntry = typeof teamCalendar.$inferSelect;
 export type NewTeamCalendarEntry = typeof teamCalendar.$inferInsert;
+export type DailyMetricsRow = typeof dailyMetrics.$inferSelect;
+export type NewDailyMetricsRow = typeof dailyMetrics.$inferInsert;

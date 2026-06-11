@@ -9,6 +9,7 @@ const TABS: { href: string; label: string; enabled: boolean }[] = [
   { href: "/tickets", label: "Tickets", enabled: true },
   { href: "/schedules", label: "Schedules", enabled: true },
   { href: "/sites", label: "Sites", enabled: true },
+  { href: "/metrics", label: "Metrics", enabled: true },
   { href: "/team", label: "Team", enabled: true },
 ];
 
