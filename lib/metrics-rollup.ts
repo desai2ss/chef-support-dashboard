@@ -113,6 +113,10 @@ async function querySessions(
 
   const customerIdsList = ALL_CUSTOMER_IDS.map((c) => `'${c}'`).join(", ");
 
+  // Filter out clearly-stuck sessions (> 16h between start_time and end_time).
+  // These are almost always orphaned sessions where the agent crashed and
+  // end_time was set hours/days later — they wildly inflate production_hours.
+  // No legitimate single PRODUCTION session lasts more than ~16h.
   const sqlStr = `
     WITH session_durations AS (
       SELECT
@@ -125,6 +129,7 @@ async function querySessions(
       WHERE DATE(start_time) BETWEEN @from AND @to
         AND end_time IS NOT NULL
         AND end_time > start_time
+        AND TIMESTAMP_DIFF(end_time, start_time, HOUR) <= 16
         AND customer_id IN (${customerIdsList})
     )
     SELECT
