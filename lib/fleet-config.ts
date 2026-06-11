@@ -100,6 +100,11 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "butter-pc",     sn: 64, nickname: "butter",     site: "CookUnity LAX" },
   { hostname: "preston-pc",    sn: 66, nickname: "preston",    site: "CookUnity LAX" },
   { hostname: "escaflowne-pc", sn: 69, nickname: "escaflowne", site: "CookUnity LAX" },
+
+  // CookUnity NYC (2 robots) — shares the `cookunity` BQ customer_id with LAX
+  // and is split by hostname (see SITES below).
+  { hostname: "myrmidon-pc",   sn: 61, nickname: "myrmidon",   site: "CookUnity NYC" },
+  { hostname: "david-pc",      sn: 67, nickname: "david",      site: "CookUnity NYC" },
 ];
 
 // Site → customer_id mapping. Amy's Medford and Pocatello share the same
@@ -118,8 +123,18 @@ export const SITES: SiteConfig[] = [
   { site: "Bonduelle",       customerIds: ["bonduelle"] },
   { site: "Café Spice",      customerIds: ["cafespice"] },
   { site: "Chef Bombay",     customerIds: ["chefbombay"] },
-  { site: "F&S Foods", customerIds: ["fsfreshfoods"] },
-  { site: "CookUnity LAX",   customerIds: ["cookunity"] },
+  { site: "F&S Foods",       customerIds: ["fsfreshfoods"] },
+  // CookUnity LAX and NYC share the `cookunity` customer_id but split by hostname.
+  {
+    site: "CookUnity LAX",
+    customerIds: ["cookunity"],
+    hostnameWhitelist: ROBOTS.filter((r) => r.site === "CookUnity LAX").map((r) => r.hostname),
+  },
+  {
+    site: "CookUnity NYC",
+    customerIds: ["cookunity"],
+    hostnameWhitelist: ROBOTS.filter((r) => r.site === "CookUnity NYC").map((r) => r.hostname),
+  },
   { site: "POH",             customerIds: ["openhand"] },
 ];
 

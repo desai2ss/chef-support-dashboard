@@ -92,5 +92,14 @@ export const SITES: SiteInfo[] = [
     availableHrsPerDay: 8,
     pylonNames: ["CookUnity LAX"],
     bqCustomerIds: ["cookunity"],
+    bqHostnameWhitelist: ["asimo-pc", "butter-pc", "preston-pc", "escaflowne-pc"],
+  },
+  {
+    name: "CookUnity NYC",
+    operatingHours: "Fri-Wed (closed Thu)",
+    availableHrsPerDay: 8, // assume same as LAX; correct in sites-config if different
+    pylonNames: ["CookUnity NYC"],
+    bqCustomerIds: ["cookunity"],
+    bqHostnameWhitelist: ["myrmidon-pc", "david-pc"],
   },
 ];
