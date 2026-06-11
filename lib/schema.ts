@@ -61,9 +61,9 @@ export const scheduleOverrides = pgTable(
 );
 
 // Team calendar entries — one row per (team-member, date). Shared across
-// everyone logged in (replaces the old localStorage-only calendar). UI on the
-// Team tab edits the next 8 weeks; older rows are kept but not shown by
-// default.
+// everyone logged in (replaces the old localStorage-only calendar). The
+// Team tab navigates one week at a time via ‹ › buttons; entries are kept
+// indefinitely so you can scroll back to past weeks too.
 export const teamCalendar = pgTable(
   "team_calendar",
   {

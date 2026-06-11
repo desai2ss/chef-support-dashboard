@@ -55,10 +55,6 @@ type JiraApiResponse = {
 const WORKING_KEY = "chef-support-team-working-v1";
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// How many weeks of calendar to show + edit. Starts from Monday of the
-// current week, so 8 = current week + 7 weeks forward.
-const CALENDAR_WEEKS = 8;
-
 type WorkingOn = Record<string, { task: string; status?: string; updated?: string }>;
 type Calendar = Record<string, string>; // key = "<memberId>|YYYY-MM-DD" -> note
 
@@ -101,17 +97,16 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
     d.setHours(0, 0, 0, 0);
     return d;
   }, []);
-  const weekStart = useMemo(() => mondayOf(today), [today]);
-  // CALENDAR_WEEKS weeks (Mon..Sun each), starting from the Monday of this week.
-  const weeks = useMemo(
-    () =>
-      Array.from({ length: CALENDAR_WEEKS }, (_, w) =>
-        Array.from({ length: 7 }, (_, d) => addDays(weekStart, w * 7 + d))
-      ),
+  // Calendar shows one week at a time. ‹ › buttons step weekStart by ±7 days.
+  const [weekStart, setWeekStart] = useState<Date>(() => mondayOf(new Date()));
+  const days = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
-  // Flat list of every day shown (used as `days` in headers etc.)
-  const days = useMemo(() => weeks.flat(), [weeks]);
+  const isThisWeek = fmtDate(weekStart) === fmtDate(mondayOf(today));
+  const weekLabel = isThisWeek
+    ? "This week"
+    : "Week of " + shortMonthDay(weekStart);
 
   // Load Pylon-backed bandwidth
   useEffect(() => {
@@ -380,14 +375,12 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
         </div>
       </section>
 
-      {/* Team calendar — manual entry per person per day, persisted in Postgres.
-          Shows CALENDAR_WEEKS weeks starting from this Monday. */}
+      {/* Team calendar — single week with ‹ › navigation. Notes persist in
+          Postgres so everyone signed in sees the same data. */}
       <section className="rounded-xl border border-line bg-card shadow-[0_1px_0_rgba(0,0,0,.02)] p-5">
-        <div className="flex justify-between items-baseline mb-3">
+        <div className="flex justify-between items-end mb-3 flex-wrap gap-3">
           <div>
-            <h2 className="text-base font-semibold">
-              Team calendar — next {CALENDAR_WEEKS} weeks
-            </h2>
+            <h2 className="text-base font-semibold">Team calendar</h2>
             <div className="text-xs text-muted mt-0.5">
               Shared across everyone signed in.{" "}
               {editor
@@ -395,9 +388,34 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
                 : "Read-only — only editors can change cells."}
             </div>
           </div>
-          <span className="text-xs text-muted">
-            {shortMonthDay(days[0])} – {shortMonthDay(days[days.length - 1])}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, -7))}
+              className="px-2 py-1 rounded-md border border-line bg-card hover:bg-cream text-sm"
+              aria-label="Previous week"
+            >
+              ‹
+            </button>
+            <button
+              onClick={() => setWeekStart(mondayOf(today))}
+              className={
+                "px-3 py-1 rounded-md border text-sm " +
+                (isThisWeek
+                  ? "bg-ink text-cream border-ink"
+                  : "bg-card border-line hover:bg-cream")
+              }
+              title={`${shortMonthDay(days[0])} – ${shortMonthDay(days[6])}`}
+            >
+              {weekLabel}
+            </button>
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, 7))}
+              className="px-2 py-1 rounded-md border border-line bg-card hover:bg-cream text-sm"
+              aria-label="Next week"
+            >
+              ›
+            </button>
+          </div>
         </div>
 
         {calendarError ? (
@@ -409,56 +427,44 @@ export default function TeamView({ editor = false }: { editor?: boolean }) {
           <div className="text-muted text-sm">Loading calendar…</div>
         ) : null}
 
-        <div className="flex flex-col gap-5">
-          {weeks.map((weekDays, wi) => (
-            <div key={fmtDate(weekDays[0])}>
-              <div className="text-xs uppercase tracking-wider text-muted mb-1.5">
-                Week of {shortMonthDay(weekDays[0])} –{" "}
-                {shortMonthDay(weekDays[6])}
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-muted">
-                      <th className="text-left py-2 px-2 w-44 font-medium">
-                        Person
-                      </th>
-                      {weekDays.map((d) => {
-                        const isToday = fmtDate(d) === fmtDate(today);
-                        return (
-                          <th
-                            key={fmtDate(d)}
-                            className={
-                              "text-left py-2 px-2 font-medium " +
-                              (isToday ? "text-blue-700" : "")
-                            }
-                          >
-                            <div>{DAY_NAMES[d.getDay()]}</div>
-                            <div className="font-normal normal-case text-muted">
-                              {shortMonthDay(d)}
-                            </div>
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {TEAM.map((m) => (
-                      <CalendarRow
-                        key={`${m.id}-${wi}`}
-                        m={m}
-                        days={weekDays}
-                        today={today}
-                        calendar={calendar}
-                        editor={editor}
-                        onSet={(date, note) => saveCalendarNote(m.id, date, note)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted">
+                <th className="text-left py-2 px-2 w-44 font-medium">Person</th>
+                {days.map((d) => {
+                  const isToday = fmtDate(d) === fmtDate(today);
+                  return (
+                    <th
+                      key={fmtDate(d)}
+                      className={
+                        "text-left py-2 px-2 font-medium " +
+                        (isToday ? "text-blue-700" : "")
+                      }
+                    >
+                      <div>{DAY_NAMES[d.getDay()]}</div>
+                      <div className="font-normal normal-case text-muted">
+                        {shortMonthDay(d)}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {TEAM.map((m) => (
+                <CalendarRow
+                  key={m.id}
+                  m={m}
+                  days={days}
+                  today={today}
+                  calendar={calendar}
+                  editor={editor}
+                  onSet={(date, note) => saveCalendarNote(m.id, date, note)}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
