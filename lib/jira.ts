@@ -146,13 +146,19 @@ function rawIssueToJiraIssue(it: any): JiraIssue {
 }
 
 // ---- main fetch (open issues = not in statusCategory "done") -------------
+// Uses ONLY the enhanced `/rest/api/3/search/jql` endpoint — the classic
+// `/rest/api/3/search` was retired by Atlassian in 2026 (returns 410).
 export async function getOpenJiraIssues(): Promise<{
   issues: JiraIssue[];
-  source: "classic" | "enhanced";
+  source: "enhanced";
   rawCount: number; // total returned by Jira before "Done" filter
 }> {
   if (CACHE && Date.now() - CACHE.at < TTL_MS) {
-    return { issues: CACHE.issues, source: "classic", rawCount: CACHE.issues.length };
+    return {
+      issues: CACHE.issues,
+      source: "enhanced",
+      rawCount: CACHE.issues.length,
+    };
   }
   if (!jiraConfigured()) {
     throw new Error(
@@ -161,70 +167,40 @@ export async function getOpenJiraIssues(): Promise<{
   }
 
   // Pull every issue in the project — we filter Done in JS so we don't
-  // depend on JQL syntax quirks.
+  // depend on JQL status-category syntax quirks.
   const jql = `project = "${JIRA_PROJECT_KEY}" ORDER BY updated DESC`;
   const allRaw: any[] = [];
-  let source: "classic" | "enhanced" = "classic";
 
-  // Try classic first.
-  try {
-    let startAt = 0;
-    const pageSize = 100;
-    for (let page = 0; page < 50; page++) {
-      const r = await fetchClassicSearch(jql, startAt, pageSize);
-      if (!r.ok) {
-        if (r.status === 410 || r.status === 404) {
-          // Classic was removed on this site — fall through to enhanced.
-          source = "enhanced";
-          allRaw.length = 0;
-          throw new Error("classic-gone");
-        }
-        const msg =
-          (r.body && (r.body.errorMessages?.join("; ") || r.body.message)) ||
-          r.text ||
-          `Jira classic search failed (HTTP ${r.status})`;
-        throw new Error(`Jira search ${r.status}: ${String(msg).slice(0, 300)}`);
-      }
-      const issuesPage: any[] = Array.isArray(r.body?.issues) ? r.body.issues : [];
-      allRaw.push(...issuesPage);
-      const total: number = Number(r.body?.total ?? allRaw.length);
-      startAt += issuesPage.length;
-      if (issuesPage.length === 0) break;
-      if (startAt >= total) break;
+  let nextPageToken: string | undefined = undefined;
+  for (let page = 0; page < 50; page++) {
+    const r = await fetchEnhancedSearch(jql, nextPageToken, 100);
+    if (!r.ok) {
+      const msg =
+        (r.body && (r.body.errorMessages?.join("; ") || r.body.message)) ||
+        r.text ||
+        `Jira search failed (HTTP ${r.status})`;
+      throw new Error(`Jira search ${r.status}: ${String(msg).slice(0, 300)}`);
     }
-  } catch (e: any) {
-    if (e?.message !== "classic-gone") throw e;
-    // Fall through to enhanced endpoint.
-    let nextPageToken: string | undefined = undefined;
-    for (let page = 0; page < 50; page++) {
-      const r = await fetchEnhancedSearch(jql, nextPageToken, 100);
-      if (!r.ok) {
-        const msg =
-          (r.body && (r.body.errorMessages?.join("; ") || r.body.message)) ||
-          r.text ||
-          `Jira enhanced search failed (HTTP ${r.status})`;
-        throw new Error(
-          `Jira enhanced search ${r.status}: ${String(msg).slice(0, 300)}`
-        );
-      }
-      const issuesPage: any[] = Array.isArray(r.body?.issues) ? r.body.issues : [];
-      allRaw.push(...issuesPage);
-      if (r.body?.isLast === true) break;
-      if (!r.body?.nextPageToken) break;
-      nextPageToken = r.body.nextPageToken;
-    }
+    const issuesPage: any[] = Array.isArray(r.body?.issues)
+      ? r.body.issues
+      : [];
+    allRaw.push(...issuesPage);
+    if (r.body?.isLast === true) break;
+    if (!r.body?.nextPageToken) break;
+    nextPageToken = r.body.nextPageToken;
   }
 
   const rawCount = allRaw.length;
   const all = allRaw.map(rawIssueToJiraIssue);
-  // "Open" = statusCategory not "done".
   const issues = all.filter((it) => it.statusCategory !== "done");
 
   CACHE = { at: Date.now(), issues };
-  return { issues, source, rawCount };
+  return { issues, source: "enhanced", rawCount };
 }
 
 // ---- standalone health probe (used by /api/jira/debug) -------------------
+// Hits /myself, /project/{key}, and runs one search against the enhanced
+// endpoint so we can tell whether the issue is auth, project key, or scope.
 export async function jiraHealthProbe(): Promise<{
   configured: boolean;
   baseUrl: string;
@@ -232,8 +208,14 @@ export async function jiraHealthProbe(): Promise<{
   projectKey: string;
   myself: { ok: boolean; status: number; body?: any; error?: string };
   project: { ok: boolean; status: number; body?: any; error?: string };
-  classicSearchAny: { ok: boolean; status: number; total?: number; sample?: any[]; error?: string };
-  classicSearchOpen: { ok: boolean; status: number; total?: number; error?: string };
+  enhancedSearchAny: {
+    ok: boolean;
+    status: number;
+    returned?: number;
+    sample?: any[];
+    isLast?: boolean;
+    error?: string;
+  };
 }> {
   const out: any = {
     configured: jiraConfigured(),
@@ -242,8 +224,7 @@ export async function jiraHealthProbe(): Promise<{
     projectKey: JIRA_PROJECT_KEY,
     myself: { ok: false, status: 0 },
     project: { ok: false, status: 0 },
-    classicSearchAny: { ok: false, status: 0 },
-    classicSearchOpen: { ok: false, status: 0 },
+    enhancedSearchAny: { ok: false, status: 0 },
   };
 
   // /myself
@@ -285,48 +266,31 @@ export async function jiraHealthProbe(): Promise<{
     out.project.error = e?.message ?? String(e);
   }
 
-  // classic search — every issue
+  // enhanced search — every issue in project (first page only)
   try {
-    const r = await fetchClassicSearch(
+    const r = await fetchEnhancedSearch(
       `project = "${JIRA_PROJECT_KEY}" ORDER BY updated DESC`,
-      0,
+      undefined,
       5
     );
-    out.classicSearchAny.status = r.status;
-    out.classicSearchAny.ok = r.ok;
+    out.enhancedSearchAny.status = r.status;
+    out.enhancedSearchAny.ok = r.ok;
     if (r.ok) {
-      out.classicSearchAny.total = r.body?.total ?? null;
-      out.classicSearchAny.sample = (r.body?.issues ?? []).map((it: any) => ({
+      const issues = r.body?.issues ?? [];
+      out.enhancedSearchAny.returned = issues.length;
+      out.enhancedSearchAny.isLast = r.body?.isLast ?? null;
+      out.enhancedSearchAny.sample = issues.map((it: any) => ({
         key: it.key,
         status: it.fields?.status?.name,
         statusCategory: it.fields?.status?.statusCategory?.key,
         assignee: it.fields?.assignee?.displayName ?? null,
       }));
     } else {
-      out.classicSearchAny.error =
+      out.enhancedSearchAny.error =
         r.body?.errorMessages?.join("; ") ?? r.text ?? `HTTP ${r.status}`;
     }
   } catch (e: any) {
-    out.classicSearchAny.error = e?.message ?? String(e);
-  }
-
-  // classic search — open only (statusCategory != Done)
-  try {
-    const r = await fetchClassicSearch(
-      `project = "${JIRA_PROJECT_KEY}" AND statusCategory != Done`,
-      0,
-      0
-    );
-    out.classicSearchOpen.status = r.status;
-    out.classicSearchOpen.ok = r.ok;
-    if (r.ok) {
-      out.classicSearchOpen.total = r.body?.total ?? null;
-    } else {
-      out.classicSearchOpen.error =
-        r.body?.errorMessages?.join("; ") ?? r.text ?? `HTTP ${r.status}`;
-    }
-  } catch (e: any) {
-    out.classicSearchOpen.error = e?.message ?? String(e);
+    out.enhancedSearchAny.error = e?.message ?? String(e);
   }
 
   return out;
