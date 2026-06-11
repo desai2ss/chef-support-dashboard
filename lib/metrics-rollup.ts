@@ -91,19 +91,19 @@ async function getAccessToken(): Promise<string> {
   return cachedToken.value;
 }
 
-// ---- BQ query: production_hours per (hostname, date) for a date range ----
+// ---- BQ query: one row per PRODUCTION session in the date range ----
 
-type SessionAggRow = {
+type SessionRow = {
   prod_date: string;
   hostname: string;
   customer_id: string;
-  production_hours: number;
+  duration_sec: number;
 };
 
 async function querySessions(
   from: string, // YYYY-MM-DD inclusive
   to: string // YYYY-MM-DD inclusive
-): Promise<SessionAggRow[]> {
+): Promise<SessionRow[]> {
   const project = process.env.GCP_PROJECT_ID;
   if (!project) throw new Error("GCP_PROJECT_ID not set");
   const table =
@@ -113,33 +113,23 @@ async function querySessions(
 
   const customerIdsList = ALL_CUSTOMER_IDS.map((c) => `'${c}'`).join(", ");
 
-  // Filter out clearly-stuck sessions (> 24h between start_time and end_time).
-  // Real production sessions cap at ~24h (Chef Bombay legitimately runs 17h
-  // shifts as a single session, so a 16h cap was too aggressive). Anything
-  // longer than 24h is an orphaned session where the agent crashed and
-  // end_time was set hours/days later — those wildly inflate production_hours.
+  // Return ONE row per PRODUCTION session so we can apply per-site duration
+  // caps in JS (where the SITES config lives). We still filter clearly
+  // garbage sessions in SQL (> 48h is definitely a stuck agent) to keep the
+  // result set small. Per-site caps are enforced after the fetch.
   const sqlStr = `
-    WITH session_durations AS (
-      SELECT
-        DATE(start_time) AS prod_date,
-        hostname,
-        customer_id,
-        label,
-        TIMESTAMP_DIFF(end_time, start_time, SECOND) AS duration_sec
-      FROM \`${table}\`
-      WHERE DATE(start_time) BETWEEN @from AND @to
-        AND end_time IS NOT NULL
-        AND end_time > start_time
-        AND TIMESTAMP_DIFF(end_time, start_time, HOUR) <= 24
-        AND customer_id IN (${customerIdsList})
-    )
     SELECT
-      FORMAT_DATE('%Y-%m-%d', prod_date) AS prod_date,
+      FORMAT_DATE('%Y-%m-%d', DATE(start_time)) AS prod_date,
       hostname,
       customer_id,
-      SUM(IF(label = 'PRODUCTION', duration_sec, 0)) / 3600.0 AS production_hours
-    FROM session_durations
-    GROUP BY prod_date, hostname, customer_id
+      DATETIME_DIFF(end_time, start_time, SECOND) AS duration_sec
+    FROM \`${table}\`
+    WHERE DATE(start_time) BETWEEN @from AND @to
+      AND end_time IS NOT NULL
+      AND end_time > start_time
+      AND DATETIME_DIFF(end_time, start_time, HOUR) <= 48
+      AND label = 'PRODUCTION'
+      AND customer_id IN (${customerIdsList})
   `;
 
   const res = await fetch(
@@ -180,10 +170,15 @@ async function querySessions(
       prod_date: String(obj.prod_date ?? ""),
       hostname: String(obj.hostname ?? ""),
       customer_id: String(obj.customer_id ?? ""),
-      production_hours: Number(obj.production_hours ?? 0),
+      duration_sec: Number(obj.duration_sec ?? 0),
     };
   });
 }
+
+// Multiplier on availableHrsPerDay to compute the per-site max-session-length
+// cap. A real production session shouldn't exceed 1.5× the scheduled day
+// — anything longer is almost certainly a stuck agent with a bogus end_time.
+const SESSION_CAP_MULTIPLIER = 1.5;
 
 // ---- Main entrypoint -----------------------------------------------------
 
@@ -195,6 +190,8 @@ export type RollupResult = {
   rowsSkipped: number;
   // Hostnames we saw in BQ but couldn't map to a known SN.
   unknownHostnames: string[];
+  // Sessions whose duration exceeded availableHrsPerDay × 1.5 and were capped.
+  cappedSessions: number;
 };
 
 export async function runRollup(
@@ -205,8 +202,49 @@ export async function runRollup(
   let written = 0;
   let skipped = 0;
   const unknown = new Set<string>();
+  let cappedSessions = 0;
 
-  // Map each BQ row to a daily_metrics row. Skip unknown hostnames.
+  // Group sessions by (sn, date), applying per-site duration cap per session.
+  type Agg = {
+    sn: number;
+    date: string;
+    site: string;
+    productionHours: number;
+  };
+  const aggregated = new Map<string, Agg>();
+
+  for (const sess of sessions) {
+    const robot = HOSTNAME_LOOKUP.get(sess.hostname);
+    if (!robot) {
+      unknown.add(sess.hostname);
+      skipped++;
+      continue;
+    }
+    const site = siteFor(sess.customer_id, sess.hostname) ?? robot.site;
+    const availHrs = AVAILABLE_HRS.get(site);
+    // Cap this session at (availHrsPerDay × 1.5). Default to 24h when site
+    // is unknown so a single bogus session can't blow up the total.
+    const maxSessionHours =
+      availHrs && availHrs > 0 ? availHrs * SESSION_CAP_MULTIPLIER : 24;
+    const sessionHoursRaw = sess.duration_sec / 3600;
+    const sessionHours = Math.min(sessionHoursRaw, maxSessionHours);
+    if (sessionHoursRaw > maxSessionHours) cappedSessions++;
+
+    const key = `${robot.sn}|${sess.prod_date}`;
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.productionHours += sessionHours;
+    } else {
+      aggregated.set(key, {
+        sn: robot.sn,
+        date: sess.prod_date,
+        site,
+        productionHours: sessionHours,
+      });
+    }
+  }
+
+  // Convert aggregated map to insert rows
   type Row = {
     sn: number;
     date: string;
@@ -215,29 +253,18 @@ export async function runRollup(
     productionHours: number;
     servings: number | null;
   };
-  const rows: Row[] = [];
-  for (const row of sessions) {
-    const robot = HOSTNAME_LOOKUP.get(row.hostname);
-    if (!robot) {
-      unknown.add(row.hostname);
-      skipped++;
-      continue;
-    }
-    const site = siteFor(row.customer_id, row.hostname) ?? robot.site;
-    const hrsAvail = AVAILABLE_HRS.get(site);
-    const utilPct =
-      hrsAvail && hrsAvail > 0
-        ? (row.production_hours / hrsAvail) * 100
-        : null;
-    rows.push({
-      sn: robot.sn,
-      date: row.prod_date,
-      site,
-      utilPct,
-      productionHours: row.production_hours,
+  const rows: Row[] = Array.from(aggregated.values()).map((a) => {
+    const availHrs = AVAILABLE_HRS.get(a.site);
+    return {
+      sn: a.sn,
+      date: a.date,
+      site: a.site,
+      utilPct:
+        availHrs && availHrs > 0 ? (a.productionHours / availHrs) * 100 : null,
+      productionHours: a.productionHours,
       servings: null,
-    });
-  }
+    };
+  });
 
   // Batch upsert in chunks. `excluded.column` references the row that
   // would have been inserted, so the SET clause picks up per-row values.
@@ -267,6 +294,7 @@ export async function runRollup(
     rowsWritten: written,
     rowsSkipped: skipped,
     unknownHostnames: Array.from(unknown).sort(),
+    cappedSessions,
   };
 }
 
