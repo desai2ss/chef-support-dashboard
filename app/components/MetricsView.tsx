@@ -188,15 +188,18 @@ export default function MetricsView({ editor }: { editor: boolean }) {
         uptimeN = 0;
       let servings = 0;
       for (const r of rows) {
-        if (r.utilPctAvg !== null && r.utilPctAvg !== undefined) {
-          utilSum += r.utilPctAvg;
+        const u = Number(r.utilPctAvg);
+        if (Number.isFinite(u)) {
+          utilSum += u;
           utilN += 1;
         }
-        if (r.uptimePctAvg !== null && r.uptimePctAvg !== undefined) {
-          uptimeSum += r.uptimePctAvg;
+        const up = Number(r.uptimePctAvg);
+        if (Number.isFinite(up)) {
+          uptimeSum += up;
           uptimeN += 1;
         }
-        servings += r.servingsSum ?? 0;
+        // Postgres returns SUM() as a string in node-postgres; coerce.
+        servings += Number(r.servingsSum ?? 0);
       }
       return {
         fleetUtil: utilN > 0 ? utilSum / utilN : null,
@@ -337,7 +340,7 @@ export default function MetricsView({ editor }: { editor: boolean }) {
         <KpiCard
           label="Total servings"
           value={totalServings > 0 ? totalServings.toLocaleString() : "—"}
-          sub="(source TBD — placeholder)"
+          sub="sum of bowl_count across PRODUCTION sessions"
         />
       </section>
 
@@ -467,6 +470,143 @@ export default function MetricsView({ editor }: { editor: boolean }) {
             Phase 2 (coming): click cells to log downtime with a Pylon ticket.
           </div>
         )}
+      </section>
+
+      {/* Pivot table — site × bucket — SERVINGS */}
+      <section className="mt-5 rounded-xl border border-line bg-card p-5">
+        <div className="flex justify-between items-baseline mb-3">
+          <h2 className="text-base font-semibold">
+            {siteFilter
+              ? `${siteFilter} — ${grainAdverb(grain)} servings`
+              : `All sites — ${grainAdverb(grain)} servings`}
+          </h2>
+          <span className="text-xs text-muted">
+            {from} – {to} · grand total{" "}
+            <span className="text-ink font-medium">
+              {totalServings.toLocaleString()}
+            </span>
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted">
+                <th className="text-left py-2 px-2 sticky left-0 bg-card font-medium">
+                  Site
+                </th>
+                {buckets.map((b) => {
+                  const f = formatBucket(b, grain);
+                  return (
+                    <th
+                      key={b}
+                      className="text-right py-2 px-2 font-medium"
+                      title={b}
+                    >
+                      <div className="leading-tight">{f.line1}</div>
+                      {f.line2 ? (
+                        <div className="font-normal normal-case text-muted text-[10px] leading-tight">
+                          {f.line2}
+                        </div>
+                      ) : null}
+                    </th>
+                  );
+                })}
+                <th className="text-right py-2 px-2 font-medium border-l border-line">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sitesShown.map((site) => {
+                let rowTotal = 0;
+                return (
+                  <tr key={site} className="border-t border-line">
+                    <td className="py-2 px-2 sticky left-0 bg-card text-ink font-medium">
+                      {site}
+                    </td>
+                    {buckets.map((b) => {
+                      const cell = matrix.get(site)?.get(b);
+                      const isDayBucket =
+                        grain === "day" &&
+                        /^\d{4}-\d{2}-\d{2}$/.test(b);
+                      // Non-scheduled days: always dash.
+                      if (isDayBucket && !isDayScheduled(site, b)) {
+                        return (
+                          <td
+                            key={b}
+                            className="py-2 px-2 text-right text-muted/30"
+                            title="Not a scheduled run day"
+                          >
+                            —
+                          </td>
+                        );
+                      }
+                      const v = Number(cell?.servingsSum ?? 0);
+                      rowTotal += v;
+                      if (!cell || v === 0) {
+                        if (isDayBucket) {
+                          return (
+                            <td
+                              key={b}
+                              className="py-2 px-2 text-right text-muted tabular-nums"
+                              title="Scheduled day — no production reported"
+                            >
+                              0
+                            </td>
+                          );
+                        }
+                        return (
+                          <td
+                            key={b}
+                            className="py-2 px-2 text-right text-muted/40"
+                          >
+                            —
+                          </td>
+                        );
+                      }
+                      return (
+                        <td
+                          key={b}
+                          className="py-2 px-2 text-right text-ink tabular-nums"
+                          title={`${cell.robotsCount} robots reported`}
+                        >
+                          {v.toLocaleString()}
+                        </td>
+                      );
+                    })}
+                    <td className="py-2 px-2 text-right text-ink font-medium tabular-nums border-l border-line">
+                      {rowTotal.toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* Column totals row */}
+              <tr className="border-t-2 border-line/80 bg-cream/30">
+                <td className="py-2 px-2 sticky left-0 bg-cream/30 text-ink font-semibold text-[11px] uppercase tracking-wider">
+                  Total
+                </td>
+                {buckets.map((b) => {
+                  let colTotal = 0;
+                  for (const site of sitesShown) {
+                    const cell = matrix.get(site)?.get(b);
+                    colTotal += Number(cell?.servingsSum ?? 0);
+                  }
+                  return (
+                    <td
+                      key={b}
+                      className="py-2 px-2 text-right text-ink font-semibold tabular-nums"
+                    >
+                      {colTotal > 0 ? colTotal.toLocaleString() : "—"}
+                    </td>
+                  );
+                })}
+                <td className="py-2 px-2 text-right text-ink font-bold tabular-nums border-l border-line">
+                  {totalServings.toLocaleString()}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {/* Per-robot daily uptime editor — only when grain=day AND site is selected */}
