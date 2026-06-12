@@ -118,6 +118,10 @@ const PRESETS: Preset[] = [
 
 type Grain = "day" | "week" | "month";
 
+function grainAdverb(g: Grain): string {
+  return g === "day" ? "daily" : g === "week" ? "weekly" : "monthly";
+}
+
 export default function MetricsView({ editor }: { editor: boolean }) {
   // Default to last 30 days
   const today = useMemo(() => {
@@ -360,8 +364,8 @@ export default function MetricsView({ editor }: { editor: boolean }) {
         <div className="flex justify-between items-baseline mb-3">
           <h2 className="text-base font-semibold">
             {siteFilter
-              ? `${siteFilter} — ${grain}ly`
-              : `All sites — ${grain}ly utilization %`}
+              ? `${siteFilter} — ${grainAdverb(grain)}`
+              : `All sites — ${grainAdverb(grain)} utilization %`}
           </h2>
           <span className="text-xs text-muted">
             {from} – {to}
@@ -401,25 +405,23 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                   </td>
                   {buckets.map((b) => {
                     const cell = matrix.get(site)?.get(b);
-                    // For day-grain buckets, distinguish:
-                    //   no data + scheduled day  → "0%"
-                    //   no data + not scheduled  → "—"
-                    //   data exists              → real %
-                    // For week/month buckets we don't have per-day schedule
-                    // resolution, so missing = "—" as before.
-                    const isDayBucket = grain === "day" && /^\d{4}-\d{2}-\d{2}$/.test(b);
+                    const isDayBucket =
+                      grain === "day" && /^\d{4}-\d{2}-\d{2}$/.test(b);
+                    // Non-scheduled days ALWAYS show "—", even if a robot
+                    // happened to run that day. The dash means "not a
+                    // production day per the site's schedule."
+                    if (isDayBucket && !isDayScheduled(site, b)) {
+                      return (
+                        <td
+                          key={b}
+                          className="py-2 px-2 text-right text-muted/30"
+                          title="Not a scheduled run day"
+                        >
+                          —
+                        </td>
+                      );
+                    }
                     if (!cell || cell.utilPctAvg === null) {
-                      if (isDayBucket && !isDayScheduled(site, b)) {
-                        return (
-                          <td
-                            key={b}
-                            className="py-2 px-2 text-right text-muted/30"
-                            title="Not a scheduled run day"
-                          >
-                            —
-                          </td>
-                        );
-                      }
                       if (isDayBucket) {
                         return (
                           <td
@@ -620,18 +622,15 @@ function PerRobotEditor({
   }
 
   // Visual style for a cell. Three states:
-  //  - non-scheduled day (dash, dimmed grey)
+  //  - non-scheduled day (dash, dimmed grey) — always wins, even if data exists
   //  - scheduled but no data (0%, muted grey)
   //  - has data (color by uptime)
   function cellStyle(
     row: DailyRow | undefined,
     scheduled: boolean
   ): string {
-    if (!row) {
-      return scheduled
-        ? "bg-cream/30 text-muted"
-        : "bg-card text-muted/30";
-    }
+    if (!scheduled) return "bg-card text-muted/30";
+    if (!row) return "bg-cream/30 text-muted";
     const u = row.uptimePct ?? 100;
     if (u >= 100) return "bg-emerald-50 text-emerald-900";
     if (u >= 75) return "bg-amber-50 text-amber-900";
@@ -774,28 +773,34 @@ function PerRobotEditor({
                           : "")
                       }
                       title={
-                        row
-                          ? [
-                              row.utilPct != null
-                                ? `util ${row.utilPct.toFixed(0)}%`
-                                : "no util data",
-                              row.productionHours != null
-                                ? `${row.productionHours.toFixed(1)}h production`
-                                : null,
-                              `uptime ${u.toFixed(0)}%`,
-                              row.uptimePylonTicket
-                                ? `ticket #${row.uptimePylonTicket}`
-                                : null,
-                              row.uptimeNote ? `note: ${row.uptimeNote}` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")
-                          : scheduled
-                            ? "Scheduled run day — no BQ data (robot off / not reporting)"
+                        !scheduled
+                          ? row
+                            ? `Not a scheduled run day (robot reported ${row.productionHours?.toFixed(1) ?? "?"}h anyway)`
                             : "Not a scheduled run day"
+                          : row
+                            ? [
+                                row.utilPct != null
+                                  ? `util ${row.utilPct.toFixed(0)}%`
+                                  : "no util data",
+                                row.productionHours != null
+                                  ? `${row.productionHours.toFixed(1)}h production`
+                                  : null,
+                                `uptime ${u.toFixed(0)}%`,
+                                row.uptimePylonTicket
+                                  ? `ticket #${row.uptimePylonTicket}`
+                                  : null,
+                                row.uptimeNote
+                                  ? `note: ${row.uptimeNote}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : "Scheduled run day — no BQ data (robot off / not reporting)"
                       }
                     >
-                      {row ? (
+                      {!scheduled ? (
+                        <div className="text-[11px] text-muted/40">—</div>
+                      ) : row ? (
                         <>
                           <div className="tabular-nums text-[11px]">
                             {u.toFixed(0)}
@@ -806,10 +811,8 @@ function PerRobotEditor({
                             </div>
                           ) : null}
                         </>
-                      ) : scheduled ? (
-                        <div className="tabular-nums text-[11px]">0</div>
                       ) : (
-                        <div className="text-[11px] text-muted/40">—</div>
+                        <div className="tabular-nums text-[11px]">0</div>
                       )}
                     </td>
                   );
