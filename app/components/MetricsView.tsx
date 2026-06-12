@@ -53,6 +53,60 @@ function addDays(d: Date, n: number): Date {
   return out;
 }
 
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+// Parse a YYYY-MM-DD string into a local-time Date (so day-of-week isn't UTC-shifted).
+function parseDate(yyyyMmDd: string): Date {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Format a "bucket" identifier returned by /api/metrics for a header label.
+// Returns { line1, line2 } so headers can stack day-name on top of m/d.
+function formatBucket(
+  bucket: string,
+  grain: "day" | "week" | "month"
+): { line1: string; line2: string } {
+  if (grain === "day" && /^\d{4}-\d{2}-\d{2}$/.test(bucket)) {
+    const d = parseDate(bucket);
+    return {
+      line1: DAY_NAMES[d.getDay()],
+      line2: `${d.getMonth() + 1}/${d.getDate()}`,
+    };
+  }
+  if (grain === "week") {
+    const m = bucket.match(/^(\d{4})-W(\d+)$/);
+    if (m) return { line1: `W${parseInt(m[2], 10)}`, line2: m[1] };
+    return { line1: bucket, line2: "" };
+  }
+  if (grain === "month") {
+    const m = bucket.match(/^(\d{4})-(\d{2})$/);
+    if (m) {
+      const monthIdx = parseInt(m[2], 10) - 1;
+      return {
+        line1: MONTH_NAMES[monthIdx] ?? m[2],
+        line2: m[1].slice(2),
+      };
+    }
+    return { line1: bucket, line2: "" };
+  }
+  return { line1: bucket, line2: "" };
+}
+
 // ---- presets -------------------------------------------------------------
 type Preset = { label: string; days: number };
 const PRESETS: Preset[] = [
@@ -320,11 +374,23 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                 <th className="text-left py-2 px-2 sticky left-0 bg-card font-medium">
                   Site
                 </th>
-                {buckets.map((b) => (
-                  <th key={b} className="text-right py-2 px-2 font-medium">
-                    {b}
-                  </th>
-                ))}
+                {buckets.map((b) => {
+                  const f = formatBucket(b, grain);
+                  return (
+                    <th
+                      key={b}
+                      className="text-right py-2 px-2 font-medium"
+                      title={b}
+                    >
+                      <div className="leading-tight">{f.line1}</div>
+                      {f.line2 ? (
+                        <div className="font-normal normal-case text-muted text-[10px] leading-tight">
+                          {f.line2}
+                        </div>
+                      ) : null}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -612,15 +678,21 @@ function PerRobotEditor({
               <th className="text-left py-2 px-2 sticky left-0 bg-card font-medium">
                 Robot
               </th>
-              {dates.map((d) => (
-                <th
-                  key={d}
-                  className="text-center py-2 px-1 font-medium tabular-nums"
-                  title={d}
-                >
-                  {d.slice(5)}
-                </th>
-              ))}
+              {dates.map((d) => {
+                const f = formatBucket(d, "day");
+                return (
+                  <th
+                    key={d}
+                    className="text-center py-2 px-1 font-medium"
+                    title={d}
+                  >
+                    <div className="leading-tight">{f.line1}</div>
+                    <div className="font-normal normal-case text-muted text-[10px] leading-tight tabular-nums">
+                      {f.line2}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -1261,18 +1333,41 @@ function LineChart({
         {buckets.map((b, i) => {
           const step = Math.ceil(buckets.length / 10);
           if (i % step !== 0 && i !== buckets.length - 1) return null;
+          // Infer grain from the bucket string format. Day = "YYYY-MM-DD",
+          // Week = "YYYY-Wnn", Month = "YYYY-MM".
+          const inferredGrain: "day" | "week" | "month" = /^\d{4}-\d{2}-\d{2}$/.test(
+            b
+          )
+            ? "day"
+            : /^\d{4}-W\d+$/.test(b)
+              ? "week"
+              : "month";
+          const f = formatBucket(b, inferredGrain);
           return (
-            <text
-              key={b}
-              x={xFor(i)}
-              y={H - padB + 16}
-              textAnchor="middle"
-              fontSize="10"
-              fill="currentColor"
-              opacity="0.6"
-            >
-              {b.length > 7 ? b.slice(5) : b}
-            </text>
+            <g key={b}>
+              <text
+                x={xFor(i)}
+                y={H - padB + 14}
+                textAnchor="middle"
+                fontSize="10"
+                fill="currentColor"
+                opacity="0.7"
+              >
+                {f.line1}
+              </text>
+              {f.line2 ? (
+                <text
+                  x={xFor(i)}
+                  y={H - padB + 26}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fill="currentColor"
+                  opacity="0.5"
+                >
+                  {f.line2}
+                </text>
+              ) : null}
+            </g>
           );
         })}
 
