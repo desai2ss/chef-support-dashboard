@@ -581,8 +581,8 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                 );
               })}
               {/* Column totals row */}
-              <tr className="border-t-2 border-line/80 bg-cream/30">
-                <td className="py-2 px-2 sticky left-0 bg-cream/30 text-ink font-semibold text-[11px] uppercase tracking-wider">
+              <tr className="border-t-2 border-line/80">
+                <td className="py-2 px-2 sticky left-0 z-10 bg-card text-ink font-semibold text-[11px] uppercase tracking-wider">
                   Total
                 </td>
                 {buckets.map((b) => {
@@ -594,13 +594,13 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                   return (
                     <td
                       key={b}
-                      className="py-2 px-2 text-right text-ink font-semibold tabular-nums"
+                      className="py-2 px-2 text-right text-ink font-semibold tabular-nums bg-cream/30"
                     >
                       {colTotal > 0 ? colTotal.toLocaleString() : "—"}
                     </td>
                   );
                 })}
-                <td className="py-2 px-2 text-right text-ink font-bold tabular-nums border-l border-line">
+                <td className="py-2 px-2 text-right text-ink font-bold tabular-nums border-l border-line bg-cream/30">
                   {totalServings.toLocaleString()}
                 </td>
               </tr>

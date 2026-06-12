@@ -79,8 +79,8 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "Chef Bombay",
-    operatingHours: "Mon-Sat",
-    scheduledDays: MON_SAT,
+    operatingHours: "Mon-Fri",
+    scheduledDays: MON_FRI,
     availableHrsPerDay: 17,
     pylonNames: ["Chef Bombay"],
     bqCustomerIds: ["chefbombay"],
