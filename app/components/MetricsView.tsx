@@ -122,6 +122,119 @@ function grainAdverb(g: Grain): string {
   return g === "day" ? "daily" : g === "week" ? "weekly" : "monthly";
 }
 
+// ---- CSV download --------------------------------------------------------
+// Build a CSV from the current rollup + per-robot daily data. Two sheets
+// concatenated into one CSV (separated by a blank row + section header).
+function buildCsv(args: {
+  from: string;
+  to: string;
+  grain: Grain;
+  siteFilter: string | null;
+  rows: RollupRow[];
+  daily: DailyRow[];
+}): string {
+  const { from, to, grain, siteFilter, rows, daily } = args;
+  const esc = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const lines: string[] = [];
+
+  // Header metadata
+  lines.push(`Chef Robotics Metrics Export`);
+  lines.push(`Date range,${esc(from)},${esc(to)}`);
+  lines.push(`Grain,${esc(grain)}`);
+  lines.push(`Site filter,${esc(siteFilter ?? "All sites")}`);
+  lines.push("");
+
+  // Section 1: rollup table (sites × buckets)
+  lines.push(`# Aggregated by site × ${grain}`);
+  lines.push(
+    [
+      "Bucket",
+      "Site",
+      "Util % (avg)",
+      "Uptime % (avg)",
+      "Servings (sum)",
+      "Robots reported",
+    ]
+      .map(esc)
+      .join(",")
+  );
+  for (const r of rows) {
+    const util = Number(r.utilPctAvg);
+    const up = Number(r.uptimePctAvg);
+    const serv = Number(r.servingsSum ?? 0);
+    lines.push(
+      [
+        r.bucket,
+        r.site,
+        Number.isFinite(util) ? util.toFixed(2) : "",
+        Number.isFinite(up) ? up.toFixed(2) : "",
+        Number.isFinite(serv) ? Math.round(serv) : "",
+        Number(r.robotsCount ?? 0),
+      ]
+        .map(esc)
+        .join(",")
+    );
+  }
+
+  // Section 2: per-robot daily rows (only present when grain=day & site filter)
+  if (daily.length > 0) {
+    lines.push("");
+    lines.push(`# Per-robot daily detail`);
+    lines.push(
+      [
+        "Date",
+        "SN",
+        "Site",
+        "Util %",
+        "Production hours",
+        "Uptime %",
+        "Servings",
+        "Pylon ticket",
+        "Uptime note",
+      ]
+        .map(esc)
+        .join(",")
+    );
+    for (const d of daily) {
+      lines.push(
+        [
+          d.date,
+          d.sn,
+          d.site,
+          d.utilPct != null ? d.utilPct.toFixed(2) : "",
+          d.productionHours != null ? d.productionHours.toFixed(2) : "",
+          d.uptimePct != null ? d.uptimePct.toFixed(2) : "",
+          d.servings ?? "",
+          d.uptimePylonTicket ?? "",
+          d.uptimeNote ?? "",
+        ]
+          .map(esc)
+          .join(",")
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function MetricsView({ editor }: { editor: boolean }) {
   // Default to last 30 days
   const today = useMemo(() => {
@@ -225,6 +338,30 @@ export default function MetricsView({ editor }: { editor: boolean }) {
     setTo(fmtDate(today));
   }
 
+  function handleDownload() {
+    if (!data) return;
+    const fname =
+      "chef-metrics_" +
+      from +
+      "_to_" +
+      to +
+      "_" +
+      grain +
+      (siteFilter
+        ? "_" + siteFilter.replace(/[^a-z0-9]+/gi, "-").toLowerCase()
+        : "") +
+      ".csv";
+    const csv = buildCsv({
+      from,
+      to,
+      grain,
+      siteFilter: siteFilter || null,
+      rows: data.rows ?? [],
+      daily: data.daily ?? [],
+    });
+    downloadCsv(fname, csv);
+  }
+
   return (
     <div>
       {/* Controls */}
@@ -293,7 +430,7 @@ export default function MetricsView({ editor }: { editor: boolean }) {
               ))}
             </select>
           </div>
-          <div className="flex gap-1 ml-auto">
+          <div className="flex gap-1 ml-auto items-end">
             {PRESETS.map((p) => (
               <button
                 key={p.label}
@@ -303,6 +440,14 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                 {p.label}
               </button>
             ))}
+            <button
+              onClick={handleDownload}
+              disabled={!data || loading}
+              className="text-xs px-3 py-1 rounded-md bg-ink text-cream font-medium hover:opacity-90 disabled:opacity-50 ml-1"
+              title="Download the current view (date range + grain + site filter) as a CSV file. Open in Google Sheets via File → Import → Upload."
+            >
+              ⬇ Download CSV
+            </button>
           </div>
         </div>
       </section>
