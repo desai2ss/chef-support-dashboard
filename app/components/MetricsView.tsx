@@ -1624,12 +1624,14 @@ function LineChart({
   metric: "utilPctAvg" | "uptimePctAvg";
   yMax: number;
 }) {
-  const W = 800;
-  const H = 280;
+  // Width scales with bucket count so each cluster has room to breathe.
+  // Min 800 (so legend + labels fit on narrow viewports), grows with buckets.
+  const W = Math.max(800, buckets.length * 48);
+  const H = 300;
   const padL = 40;
   const padR = 16;
   const padT = 12;
-  const padB = 36;
+  const padB = 40;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
@@ -1641,12 +1643,16 @@ function LineChart({
     );
   }
 
-  // x position for each bucket (evenly spaced)
-  const xFor = (i: number) =>
-    padL + (buckets.length === 1 ? plotW / 2 : (i * plotW) / (buckets.length - 1));
-  const yFor = (v: number) => padT + plotH - (Math.min(v, yMax) / yMax) * plotH;
+  // Group geometry: each bucket gets a column of width groupW; site bars
+  // pack into 80% of that, leaving a 20% gap between buckets.
+  const groupW = plotW / buckets.length;
+  const usableW = groupW * 0.8;
+  const barW = Math.max(2, usableW / sites.length);
+  const groupCenter = (i: number) => padL + groupW * (i + 0.5);
+  const yFor = (v: number) =>
+    padT + plotH - (Math.min(v, yMax) / yMax) * plotH;
 
-  // y-axis grid lines at 25/50/75/100/yMax
+  // y-axis grid lines
   const yTicks = [0, 25, 50, 75, 100];
   if (yMax > 100) yTicks.push(yMax);
 
@@ -1681,12 +1687,20 @@ function LineChart({
           </g>
         ))}
 
+        {/* X-axis baseline */}
+        <line
+          x1={padL}
+          x2={W - padR}
+          y1={yFor(0)}
+          y2={yFor(0)}
+          stroke="currentColor"
+          strokeOpacity="0.2"
+        />
+
         {/* X-axis labels — every Nth bucket for readability */}
         {buckets.map((b, i) => {
-          const step = Math.ceil(buckets.length / 10);
+          const step = Math.ceil(buckets.length / 14);
           if (i % step !== 0 && i !== buckets.length - 1) return null;
-          // Infer grain from the bucket string format. Day = "YYYY-MM-DD",
-          // Week = "YYYY-Wnn", Month = "YYYY-MM".
           const inferredGrain: "day" | "week" | "month" = /^\d{4}-\d{2}-\d{2}$/.test(
             b
           )
@@ -1698,7 +1712,7 @@ function LineChart({
           return (
             <g key={b}>
               <text
-                x={xFor(i)}
+                x={groupCenter(i)}
                 y={H - padB + 14}
                 textAnchor="middle"
                 fontSize="10"
@@ -1709,7 +1723,7 @@ function LineChart({
               </text>
               {f.line2 ? (
                 <text
-                  x={xFor(i)}
+                  x={groupCenter(i)}
                   y={H - padB + 26}
                   textAnchor="middle"
                   fontSize="9"
@@ -1723,35 +1737,36 @@ function LineChart({
           );
         })}
 
-        {/* Lines */}
-        {sites.map((site, si) => {
-          const color = SITE_COLORS[si % SITE_COLORS.length];
-          const points = buckets
-            .map((b, i) => {
-              const cell = matrix.get(site)?.get(b);
-              const v =
-                cell && cell[metric] !== null && cell[metric] !== undefined
-                  ? (cell[metric] as number)
-                  : null;
-              return v === null ? null : { x: xFor(i), y: yFor(v) };
-            })
-            .filter((p): p is { x: number; y: number } => p !== null);
-          if (points.length === 0) return null;
-          const path = points
-            .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-            .join(" ");
+        {/* Grouped bars — one column per bucket, one bar per site */}
+        {buckets.map((b, i) => {
+          const groupLeft = groupCenter(i) - usableW / 2;
           return (
-            <g key={site}>
-              <path
-                d={path}
-                fill="none"
-                stroke={color}
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-              {points.map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r="2" fill={color} />
-              ))}
+            <g key={b}>
+              {sites.map((site, si) => {
+                const cell = matrix.get(site)?.get(b);
+                const v =
+                  cell && cell[metric] !== null && cell[metric] !== undefined
+                    ? (cell[metric] as number)
+                    : null;
+                if (v === null) return null;
+                const barH = (Math.min(v, yMax) / yMax) * plotH;
+                const x = groupLeft + si * barW;
+                const y = padT + plotH - barH;
+                const color = SITE_COLORS[si % SITE_COLORS.length];
+                return (
+                  <rect
+                    key={site}
+                    x={x}
+                    y={y}
+                    width={Math.max(1, barW - 0.5)}
+                    height={Math.max(0.5, barH)}
+                    fill={color}
+                    opacity={0.9}
+                  >
+                    <title>{`${site} · ${b} · ${v.toFixed(1)}%`}</title>
+                  </rect>
+                );
+              })}
             </g>
           );
         })}
