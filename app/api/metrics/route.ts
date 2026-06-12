@@ -127,6 +127,7 @@ export async function GET(req: Request) {
           date: schema.dailyMetrics.date,
           site: schema.dailyMetrics.site,
           utilPct: schema.dailyMetrics.utilPct,
+          productionHours: schema.dailyMetrics.productionHours,
           uptimePct: schema.dailyMetrics.uptimePct,
           servings: schema.dailyMetrics.servings,
           uptimePylonTicket: schema.dailyMetrics.uptimePylonTicket,

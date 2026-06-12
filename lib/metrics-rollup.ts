@@ -199,6 +199,8 @@ export type RollupResult = {
   cappedSessions: number;
   // Sessions skipped because their site is flagged excludeFromMetrics.
   excludedSiteSessions: number;
+  // (sn, date) rows whose daily total exceeded availHrs × 1.5 and were capped.
+  dailyCapHits: number;
 };
 
 export async function runRollup(
@@ -257,7 +259,16 @@ export async function runRollup(
     }
   }
 
-  // Convert aggregated map to insert rows
+  // Convert aggregated map to insert rows, applying a DAILY cap on
+  // production_hours per (sn, date). Even with the per-session cap, multiple
+  // overlapping/stuck sessions on the same day can sum to absurd totals
+  // (e.g. CookUnity LAX showing 213% util on a 8-hr day = 17 hrs of "prod").
+  // The daily cap = min(availHrs × 1.5, 24) keeps numbers physically possible:
+  //   POH (4hr):  cap=6   → max util 150%
+  //   LAX (8hr):  cap=12  → max util 150%
+  //   CB (17hr):  cap=24  → max util 141% (physical 24h ceiling)
+  //   Amys (16):  cap=24  → max util 150%
+  let dailyCapHits = 0;
   type Row = {
     sn: number;
     date: string;
@@ -268,16 +279,22 @@ export async function runRollup(
   };
   const rows: Row[] = Array.from(aggregated.values()).map((a) => {
     const availHrs = AVAILABLE_HRS.get(a.site);
+    const dailyCap =
+      availHrs && availHrs > 0 ? Math.min(availHrs * SESSION_CAP_MULTIPLIER, 24) : 24;
+    const cappedHours = Math.min(a.productionHours, dailyCap);
+    if (a.productionHours > dailyCap) dailyCapHits++;
     return {
       sn: a.sn,
       date: a.date,
       site: a.site,
       utilPct:
-        availHrs && availHrs > 0 ? (a.productionHours / availHrs) * 100 : null,
-      productionHours: a.productionHours,
+        availHrs && availHrs > 0 ? (cappedHours / availHrs) * 100 : null,
+      productionHours: cappedHours,
       servings: null,
     };
   });
+  // Stash for the response (referenced after the loop)
+  (rows as any)._dailyCapHits = dailyCapHits;
 
   // Batch upsert in chunks. `excluded.column` references the row that
   // would have been inserted, so the SET clause picks up per-row values.
@@ -319,6 +336,7 @@ export async function runRollup(
     excludedSiteSessions,
     unknownHostnames: Array.from(unknown).sort(),
     cappedSessions,
+    dailyCapHits: (rows as any)._dailyCapHits ?? 0,
   };
 }
 

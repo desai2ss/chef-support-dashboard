@@ -22,6 +22,7 @@ type DailyRow = {
   date: string;
   site: string;
   utilPct: number | null;
+  productionHours: number | null;
   uptimePct: number | null;
   servings: number | null;
   uptimePylonTicket: string | null;
@@ -657,6 +658,9 @@ function PerRobotEditor({
                               row.utilPct != null
                                 ? `util ${row.utilPct.toFixed(0)}%`
                                 : "no util data",
+                              row.productionHours != null
+                                ? `${row.productionHours.toFixed(1)}h production`
+                                : null,
                               `uptime ${u.toFixed(0)}%`,
                               row.uptimePylonTicket
                                 ? `ticket #${row.uptimePylonTicket}`
