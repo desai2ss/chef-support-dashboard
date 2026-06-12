@@ -5,7 +5,7 @@
 // admin endpoint /api/metrics/backfill.
 
 import { useEffect, useMemo, useState } from "react";
-import { SITES } from "@/lib/sites-config";
+import { SITES, isDayScheduled } from "@/lib/sites-config";
 import { ROBOTS } from "@/lib/fleet-config";
 
 type RollupRow = {
@@ -401,7 +401,36 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                   </td>
                   {buckets.map((b) => {
                     const cell = matrix.get(site)?.get(b);
+                    // For day-grain buckets, distinguish:
+                    //   no data + scheduled day  → "0%"
+                    //   no data + not scheduled  → "—"
+                    //   data exists              → real %
+                    // For week/month buckets we don't have per-day schedule
+                    // resolution, so missing = "—" as before.
+                    const isDayBucket = grain === "day" && /^\d{4}-\d{2}-\d{2}$/.test(b);
                     if (!cell || cell.utilPctAvg === null) {
+                      if (isDayBucket && !isDayScheduled(site, b)) {
+                        return (
+                          <td
+                            key={b}
+                            className="py-2 px-2 text-right text-muted/30"
+                            title="Not a scheduled run day"
+                          >
+                            —
+                          </td>
+                        );
+                      }
+                      if (isDayBucket) {
+                        return (
+                          <td
+                            key={b}
+                            className="py-2 px-2 text-right text-muted tabular-nums"
+                            title="Scheduled run day — no BQ data (robots off / not reporting)"
+                          >
+                            0%
+                          </td>
+                        );
+                      }
                       return (
                         <td
                           key={b}
@@ -590,9 +619,19 @@ function PerRobotEditor({
     setSelected(next);
   }
 
-  // Visual style for a cell
-  function cellStyle(row: DailyRow | undefined): string {
-    if (!row) return "bg-cream/30 text-muted/40";
+  // Visual style for a cell. Three states:
+  //  - non-scheduled day (dash, dimmed grey)
+  //  - scheduled but no data (0%, muted grey)
+  //  - has data (color by uptime)
+  function cellStyle(
+    row: DailyRow | undefined,
+    scheduled: boolean
+  ): string {
+    if (!row) {
+      return scheduled
+        ? "bg-cream/30 text-muted"
+        : "bg-card text-muted/30";
+    }
     const u = row.uptimePct ?? 100;
     if (u >= 100) return "bg-emerald-50 text-emerald-900";
     if (u >= 75) return "bg-amber-50 text-amber-900";
@@ -709,16 +748,26 @@ function PerRobotEditor({
                   const k = cellKey(r.sn, d);
                   const row = cellMap.get(k);
                   const isSelected = selected.has(k);
+                  const scheduled = isDayScheduled(site, d);
                   const u = row?.uptimePct ?? 100;
                   const hasDowntime = u < 100;
+                  // Three display modes:
+                  //   row exists  → uptime % (color-coded)
+                  //   no row, scheduled    → "0" (scheduled but no data)
+                  //   no row, not scheduled → "—" (off day)
                   return (
                     <td
                       key={d}
-                      onClick={(e) => handleCellClick(r.sn, d, e)}
+                      onClick={(e) => {
+                        // Allow selection even on non-scheduled days so
+                        // editors can manually log a downtime on those if
+                        // needed, but visually dim.
+                        handleCellClick(r.sn, d, e);
+                      }}
                       className={
                         "py-1 px-1 text-center align-middle border-l border-line/40 select-none " +
                         (editor ? "cursor-pointer hover:brightness-95 " : "") +
-                        cellStyle(row) +
+                        cellStyle(row, scheduled) +
                         " " +
                         (isSelected
                           ? "ring-2 ring-inset ring-blue-500 z-10 relative"
@@ -741,17 +790,27 @@ function PerRobotEditor({
                             ]
                               .filter(Boolean)
                               .join(" · ")
-                          : "no data"
+                          : scheduled
+                            ? "Scheduled run day — no BQ data (robot off / not reporting)"
+                            : "Not a scheduled run day"
                       }
                     >
-                      <div className="tabular-nums text-[11px]">
-                        {u.toFixed(0)}
-                      </div>
-                      {hasDowntime && row?.uptimePylonTicket ? (
-                        <div className="text-[9px] text-muted leading-tight">
-                          #{row.uptimePylonTicket}
-                        </div>
-                      ) : null}
+                      {row ? (
+                        <>
+                          <div className="tabular-nums text-[11px]">
+                            {u.toFixed(0)}
+                          </div>
+                          {hasDowntime && row.uptimePylonTicket ? (
+                            <div className="text-[9px] text-muted leading-tight">
+                              #{row.uptimePylonTicket}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : scheduled ? (
+                        <div className="tabular-nums text-[11px]">0</div>
+                      ) : (
+                        <div className="text-[11px] text-muted/40">—</div>
+                      )}
                     </td>
                   );
                 })}
@@ -766,7 +825,9 @@ function PerRobotEditor({
         full uptime ·{" "}
         <span className="px-1 bg-amber-50 text-amber-900">75-99</span> partial ·{" "}
         <span className="px-1 bg-red-50 text-red-900">&lt; 75</span> major
-        downtime · <span className="text-muted/60">grey</span> = no BQ data
+        downtime · <span className="bg-cream/30 px-1">0</span> scheduled day
+        with no data ·{" "}
+        <span className="text-muted/40">—</span> not a scheduled run day
       </div>
     </section>
   );
