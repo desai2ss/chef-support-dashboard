@@ -103,6 +103,7 @@ type SessionRow = {
   hostname: string;
   customer_id: string;
   duration_sec: number;
+  bowl_count: number;
 };
 
 async function querySessions(
@@ -127,7 +128,8 @@ async function querySessions(
       FORMAT_DATE('%Y-%m-%d', DATE(start_time)) AS prod_date,
       hostname,
       customer_id,
-      DATETIME_DIFF(end_time, start_time, SECOND) AS duration_sec
+      DATETIME_DIFF(end_time, start_time, SECOND) AS duration_sec,
+      COALESCE(bowl_count, 0) AS bowl_count
     FROM \`${table}\`
     WHERE DATE(start_time) BETWEEN @from AND @to
       AND end_time IS NOT NULL
@@ -176,6 +178,7 @@ async function querySessions(
       hostname: String(obj.hostname ?? ""),
       customer_id: String(obj.customer_id ?? ""),
       duration_sec: Number(obj.duration_sec ?? 0),
+      bowl_count: Number(obj.bowl_count ?? 0),
     };
   });
 }
@@ -219,6 +222,7 @@ export async function runRollup(
     date: string;
     site: string;
     productionHours: number;
+    servings: number; // total bowl_count summed across sessions
   };
   const aggregated = new Map<string, Agg>();
 
@@ -249,12 +253,14 @@ export async function runRollup(
     const existing = aggregated.get(key);
     if (existing) {
       existing.productionHours += sessionHours;
+      existing.servings += sess.bowl_count;
     } else {
       aggregated.set(key, {
         sn: robot.sn,
         date: sess.prod_date,
         site,
         productionHours: sessionHours,
+        servings: sess.bowl_count,
       });
     }
   }
@@ -290,7 +296,7 @@ export async function runRollup(
       utilPct:
         availHrs && availHrs > 0 ? (cappedHours / availHrs) * 100 : null,
       productionHours: cappedHours,
-      servings: null,
+      servings: Math.round(a.servings),
     };
   });
   // Stash for the response (referenced after the loop)
@@ -312,6 +318,7 @@ export async function runRollup(
           site: sql`excluded.site`,
           utilPct: sql`excluded.util_pct`,
           productionHours: sql`excluded.production_hours`,
+          servings: sql`excluded.servings`,
         },
       });
     written += batch.length;

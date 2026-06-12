@@ -1100,14 +1100,17 @@ function MethodologySection() {
           <div>
             <h3 className="font-semibold mt-3 mb-1">Total servings</h3>
             <p className="text-muted">
-              <strong>Currently a placeholder.</strong> The VC DD spreadsheet
-              tracks servings counts but we haven&apos;t identified which BQ
-              column or table they come from yet — possibly{" "}
-              <code className="text-[12px]">deposits</code> on{" "}
-              <code className="text-[12px]">sessions_v0</code>, or a separate
-              table. Until that&apos;s wired, the column reads{" "}
-              <code className="text-[12px]">null</code> and the KPI shows{" "}
-              <em>—</em>.
+              Per (robot, date), total servings ={" "}
+              <code className="text-[12px]">SUM(bowl_count)</code> across that
+              robot&apos;s PRODUCTION-labeled sessions on that date. Pulled
+              from <code className="text-[12px]">sessions_v0.bowl_count</code>{" "}
+              — same column Retool&apos;s Daily Production Summary uses for
+              its &ldquo;Deposits&rdquo; KPI. One bowl = one serving.
+            </p>
+            <p className="text-muted text-[13px] mt-1">
+              The bucket rollup <strong>sums</strong> across days and robots
+              (totals, not averages). The KPI card shows the grand total for
+              the selected date range and site filter.
             </p>
           </div>
 
