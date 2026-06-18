@@ -28,6 +28,23 @@ const EXCLUDED_SITES = SITES.filter((s) => s.excludeFromMetrics).map(
   (s) => s.name
 );
 
+// SQL-side schedule check. For each site, allow only dates whose DOW is in
+// the site's scheduledDays. Built at import time, embedded as raw SQL.
+//
+//   EXTRACT(DOW FROM date::date) ∈ {0..6}, where 0=Sun..6=Sat — matches our
+//   JS-side day-of-week conventions exactly.
+function buildScheduleFilterSql(): string {
+  const safeName = (s: string) => s.replace(/'/g, "''");
+  const cases = SITES.filter((s) => !s.excludeFromMetrics)
+    .map((s) => {
+      const days = s.scheduledDays.join(",");
+      return `WHEN '${safeName(s.name)}' THEN EXTRACT(DOW FROM date::date)::int IN (${days})`;
+    })
+    .join(" ");
+  return `(CASE site ${cases} ELSE TRUE END)`;
+}
+const SCHEDULE_FILTER_SQL = buildScheduleFilterSql();
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -84,9 +101,12 @@ export async function GET(req: Request) {
     });
   }
 
-  // Inner WHERE for per_day CTE
+  // Inner WHERE for per_day CTE. Always also enforce the site's scheduled
+  // days-of-week — drops "I ran a session on a Sunday at a Mon-Fri site"
+  // rows from the rollup math, matching the dash-out behavior in the UI.
   const innerWhere = [
     sql`date BETWEEN ${from} AND ${to}`,
+    sql.raw(SCHEDULE_FILTER_SQL),
   ];
   if (siteFilter) {
     innerWhere.push(sql`site = ${siteFilter}`);
