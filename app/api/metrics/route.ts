@@ -28,22 +28,24 @@ const EXCLUDED_SITES = SITES.filter((s) => s.excludeFromMetrics).map(
   (s) => s.name
 );
 
-// SQL-side schedule check. For each site, allow only dates whose DOW is in
-// the site's scheduledDays. Built at import time, embedded as raw SQL.
-//
-//   EXTRACT(DOW FROM date::date) ∈ {0..6}, where 0=Sun..6=Sat — matches our
-//   JS-side day-of-week conventions exactly.
-function buildScheduleFilterSql(): string {
+// Build a SQL VALUES clause containing every (site, scheduled_dow) tuple
+// from the SITES config. Lets us CROSS JOIN against a date_range to
+// generate the full grid of "days a site should have data on" — even if no
+// daily_metrics row exists for that (site, date).
+function buildSiteScheduleValuesSql(siteFilter: string | null): string {
   const safeName = (s: string) => s.replace(/'/g, "''");
-  const cases = SITES.filter((s) => !s.excludeFromMetrics)
-    .map((s) => {
-      const days = s.scheduledDays.join(",");
-      return `WHEN '${safeName(s.name)}' THEN EXTRACT(DOW FROM date::date)::int IN (${days})`;
-    })
-    .join(" ");
-  return `(CASE site ${cases} ELSE TRUE END)`;
+  const eligible = SITES.filter(
+    (s) => !s.excludeFromMetrics && (!siteFilter || s.name === siteFilter)
+  );
+  const tuples = eligible.flatMap((s) =>
+    s.scheduledDays.map((dow) => `('${safeName(s.name)}', ${dow})`)
+  );
+  if (tuples.length === 0) {
+    // No eligible sites — return a no-op (empty grid).
+    return `(SELECT NULL::text AS site, NULL::int AS dow WHERE FALSE)`;
+  }
+  return `(VALUES ${tuples.join(", ")}) AS site_schedule(site, dow)`;
 }
-const SCHEDULE_FILTER_SQL = buildScheduleFilterSql();
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -101,26 +103,10 @@ export async function GET(req: Request) {
     });
   }
 
-  // Inner WHERE for per_day CTE. Always also enforce the site's scheduled
-  // days-of-week — drops "I ran a session on a Sunday at a Mon-Fri site"
-  // rows from the rollup math, matching the dash-out behavior in the UI.
-  const innerWhere = [
-    sql`date BETWEEN ${from} AND ${to}`,
-    sql.raw(SCHEDULE_FILTER_SQL),
-  ];
-  if (siteFilter) {
-    innerWhere.push(sql`site = ${siteFilter}`);
-  } else if (EXCLUDED_SITES.length > 0) {
-    innerWhere.push(
-      sql`site NOT IN (${sql.join(
-        EXCLUDED_SITES.map((s) => sql`${s}`),
-        sql`, `
-      )})`
-    );
-  }
-  const whereSql = sql.join(innerWhere, sql` AND `);
+  // Schedule grid: every (site, scheduled_dow) tuple from SITES config.
+  const siteScheduleSql = buildSiteScheduleValuesSql(siteFilter);
 
-  // Also build the WHERE for the per-robot drilldown (uses Drizzle columns).
+  // Drift WHERE for per-robot drilldown (uses Drizzle columns).
   const driftWhere = [
     gte(schema.dailyMetrics.date, from),
     lte(schema.dailyMetrics.date, to),
@@ -132,30 +118,41 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Two-step rollup: first average per (date, site), then aggregate over
-    // the bucket. This makes weekly = mean of daily means (the intuitive
-    // "average day in this period") rather than a row-weighted average that
-    // overweights days with more robot reports.
+    // Generate the full scheduled-day grid (site × scheduled day in range),
+    // then LEFT JOIN to daily_metrics. Empty cells get util=0, uptime=100,
+    // servings=0 — matching what the UI shows. This way weekly/monthly
+    // averages reconcile with what you see in the daily table.
     const result: any = await db.execute(sql`
-      WITH per_day AS (
+      WITH date_range AS (
+        SELECT d::date AS date_col, EXTRACT(DOW FROM d)::int AS dow
+        FROM generate_series(${from}::date, ${to}::date, '1 day'::interval) d
+      ),
+      scheduled_days AS (
+        SELECT ss.site, dr.date_col AS date_col
+        FROM ${sql.raw(siteScheduleSql)} ss
+        JOIN date_range dr ON dr.dow = ss.dow
+      ),
+      per_day AS (
         SELECT
-          date,
-          site,
-          AVG(util_pct)::real      AS daily_util,
-          AVG(uptime_pct)::real    AS daily_uptime,
-          COALESCE(SUM(servings), 0)::bigint AS daily_servings,
-          COUNT(DISTINCT sn)       AS daily_robots
-        FROM daily_metrics
-        WHERE ${whereSql}
-        GROUP BY date, site
+          sd.site,
+          to_char(sd.date_col, 'YYYY-MM-DD') AS date,
+          COALESCE(AVG(dm.util_pct), 0)::real    AS daily_util,
+          COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
+          COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
+          COUNT(DISTINCT dm.sn)                   AS daily_robots
+        FROM scheduled_days sd
+        LEFT JOIN daily_metrics dm
+          ON dm.site = sd.site
+         AND dm.date = to_char(sd.date_col, 'YYYY-MM-DD')
+        GROUP BY sd.site, sd.date_col
       )
       SELECT
-        ${bucketExpr}                        AS bucket,
+        ${bucketExpr}                            AS bucket,
         site,
-        AVG(daily_util)::real                AS util_pct_avg,
-        AVG(daily_uptime)::real              AS uptime_pct_avg,
+        AVG(daily_util)::real                    AS util_pct_avg,
+        AVG(daily_uptime)::real                  AS uptime_pct_avg,
         COALESCE(SUM(daily_servings), 0)::bigint AS servings_sum,
-        MAX(daily_robots)                    AS robots_count
+        MAX(daily_robots)                        AS robots_count
       FROM per_day
       GROUP BY bucket, site
       ORDER BY bucket, site
