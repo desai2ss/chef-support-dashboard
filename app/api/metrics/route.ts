@@ -139,13 +139,8 @@ export async function GET(req: Request) {
         SELECT
           sd.site,
           to_char(sd.date_col, 'YYYY-MM-DD') AS date,
-          -- daily_util is NULL on scheduled days with no data so outer AVG
-          -- ignores them (per user spec: "average only days that ran").
-          AVG(dm.util_pct)::real                  AS daily_util,
-          -- Uptime defaults to 100 on every scheduled day, so an empty day
-          -- counts as 100 in the avg (matches what cells display).
+          COALESCE(AVG(dm.util_pct), 0)::real     AS daily_util,
           COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
-          -- Servings is a sum — empty days correctly contribute 0.
           COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
           COUNT(DISTINCT dm.sn)                   AS daily_robots
         FROM scheduled_days sd
@@ -184,6 +179,7 @@ export async function GET(req: Request) {
       servingsSum: Number(r.servings_sum ?? 0),
       robotsCount: Number(r.robots_count ?? 0),
     }));
+
 
     // If grain=day AND a site is selected, also return per-robot daily rows
     // for the drilldown table / cell editor.
