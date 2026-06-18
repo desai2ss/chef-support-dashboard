@@ -1353,7 +1353,180 @@ function MethodologySection() {
                 the &ldquo;typical day in this period&rdquo; intuition rather
                 than weighting toward days with more reports.
               </li>
+              <li>
+                Empty scheduled days (a scheduled run day with zero BQ
+                production data) count as{" "}
+                <strong>0% util in the average</strong>. So a 5-day week with
+                only 3 days of real data, each at 100%, shows weekly util ={" "}
+                (100+100+100+0+0) / 5 = <strong>60%</strong>, not 100%. The
+                math matches what&apos;s visually shown in the daily cells.
+              </li>
             </ul>
+          </div>
+
+          {/* Why grains differ */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">
+              Why day, week, and month numbers don&apos;t exactly match
+            </h3>
+            <p className="text-muted">
+              Each grain aggregates differently — they&apos;re mathematically
+              different views of the same underlying data:
+            </p>
+            <ul className="text-muted text-[13px] mt-1 ml-5 list-disc space-y-1">
+              <li>
+                <strong>Day cell</strong>: avg of robot util on that single
+                day, for that site.
+              </li>
+              <li>
+                <strong>Week cell</strong>: avg of that site&apos;s 5-7 daily
+                values for the week (empty days = 0%).
+              </li>
+              <li>
+                <strong>Month cell</strong>: avg of that site&apos;s ~22 daily
+                values for the month (empty days = 0%).
+              </li>
+              <li>
+                <strong>Fleet KPI</strong>: avg of every (site × bucket) cell
+                visible in the pivot. With grain=day over 30 days × 8 sites,
+                that&apos;s 240 cells averaged. With grain=month it&apos;s
+                ~8 cells. Because each higher-grain cell is itself an average
+                of multiple days, the math doesn&apos;t exactly equal a flat
+                mean of all daily values — different weighting.
+              </li>
+              <li>
+                <strong>Servings (sum)</strong>:{" "}
+                <em>does</em> match exactly across grains — sum is
+                associative, so day-total = week-total summed = month-total
+                summed for the same range.
+              </li>
+            </ul>
+            <p className="text-muted text-[13px] mt-2">
+              If you want a single &ldquo;overall utilization for this date
+              range&rdquo; that doesn&apos;t change as you switch grain, drop
+              to grain=day and look at the KPI — that&apos;s the most direct
+              flat mean.
+            </p>
+          </div>
+
+          {/* Compared to Retool */}
+          <div>
+            <h3 className="font-semibold mt-3 mb-1">
+              How this differs from Retool&apos;s Daily Production Summary
+            </h3>
+            <p className="text-muted">
+              We pull from the same BigQuery table (
+              <code className="text-[12px]">
+                coremetrics_staging.sessions_v0
+              </code>
+              ), so it&apos;s the same raw data — but the numbers won&apos;t
+              be identical because of filter and bucketing choices:
+            </p>
+            <div className="overflow-x-auto mt-2">
+              <table className="text-[12px] border border-line rounded-md">
+                <thead className="bg-cream/40">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-medium">Aspect</th>
+                    <th className="text-left px-3 py-1.5 font-medium">
+                      This dashboard
+                    </th>
+                    <th className="text-left px-3 py-1.5 font-medium">
+                      Retool
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink">
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Source column for servings</td>
+                    <td className="px-3 py-1">
+                      <code>sessions_v0.bowl_count</code>
+                    </td>
+                    <td className="px-3 py-1">
+                      <code>sessions_v0.bowl_count</code>
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Util % shown?</td>
+                    <td className="px-3 py-1">
+                      Yes: <code>prod_hrs / availHrs × 100</code>
+                    </td>
+                    <td className="px-3 py-1">
+                      No — Retool shows &ldquo;Modules Active Time (hr)&rdquo;
+                      instead
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Session filter</td>
+                    <td className="px-3 py-1">
+                      <code>label = &apos;PRODUCTION&apos;</code>
+                    </td>
+                    <td className="px-3 py-1">
+                      <code>label = &apos;PRODUCTION&apos;</code> AND{" "}
+                      <code>session_state IN (&apos;completed&apos;, &apos;failed&apos;)</code>
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Production day boundary</td>
+                    <td className="px-3 py-1">
+                      Customer-local <strong>2:00am</strong> — sessions from
+                      2am Mon to 1:59am Tue all attribute to Monday
+                    </td>
+                    <td className="px-3 py-1">
+                      Customer-local <strong>midnight</strong>
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Non-scheduled days</td>
+                    <td className="px-3 py-1">
+                      Excluded entirely (off-days render as &ldquo;—&rdquo;,
+                      no contribution to averages)
+                    </td>
+                    <td className="px-3 py-1">
+                      Included if data exists
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">
+                      Stuck-session protection
+                    </td>
+                    <td className="px-3 py-1">
+                      Per-site cap: each session &le;{" "}
+                      <code>availHrs × 1.5</code>; daily total &le;{" "}
+                      <code>min(availHrs × 1.5, 24h)</code>
+                    </td>
+                    <td className="px-3 py-1">No cap</td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Excluded sites</td>
+                    <td className="px-3 py-1">
+                      CookUnity NYC (flag in{" "}
+                      <code>sites-config.ts</code>)
+                    </td>
+                    <td className="px-3 py-1">
+                      Selectable; nothing globally excluded
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-3 py-1 font-medium">Uptime</td>
+                    <td className="px-3 py-1">
+                      Defaults to 100%; editor-only manual adjustments with
+                      required Pylon ticket
+                    </td>
+                    <td className="px-3 py-1">
+                      Not tracked here — uses different data sources
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-muted text-[13px] mt-2">
+              Net effect: for the same site + date range, the dashboard&apos;s
+              servings total is usually <em>slightly lower</em> than
+              Retool&apos;s, because we exclude failed sessions and
+              non-scheduled days, and we cap sessions that look stuck. The
+              difference is usually 1-5% but can be larger if a site has
+              flaky reporting that produced inflated single sessions.
+            </p>
           </div>
 
           {/* Uptime */}
