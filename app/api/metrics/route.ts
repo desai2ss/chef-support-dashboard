@@ -32,6 +32,9 @@ const EXCLUDED_SITES = SITES.filter((s) => s.excludeFromMetrics).map(
 // from the SITES config. Lets us CROSS JOIN against a date_range to
 // generate the full grid of "days a site should have data on" — even if no
 // daily_metrics row exists for that (site, date).
+//
+// The returned fragment is a *bare* parenthesized expression — the outer
+// query is expected to provide the AS alias (e.g. `AS ss(site, dow)`).
 function buildSiteScheduleValuesSql(siteFilter: string | null): string {
   const safeName = (s: string) => s.replace(/'/g, "''");
   const eligible = SITES.filter(
@@ -41,10 +44,10 @@ function buildSiteScheduleValuesSql(siteFilter: string | null): string {
     s.scheduledDays.map((dow) => `('${safeName(s.name)}', ${dow})`)
   );
   if (tuples.length === 0) {
-    // No eligible sites — return a no-op (empty grid).
-    return `(SELECT NULL::text AS site, NULL::int AS dow WHERE FALSE)`;
+    // No eligible sites — return a no-op subquery yielding 0 rows.
+    return `(SELECT NULL::text, NULL::int WHERE FALSE)`;
   }
-  return `(VALUES ${tuples.join(", ")}) AS site_schedule(site, dow)`;
+  return `(VALUES ${tuples.join(", ")})`;
 }
 
 export const dynamic = "force-dynamic";
@@ -129,7 +132,7 @@ export async function GET(req: Request) {
       ),
       scheduled_days AS (
         SELECT ss.site, dr.date_col AS date_col
-        FROM ${sql.raw(siteScheduleSql)} ss
+        FROM ${sql.raw(siteScheduleSql)} AS ss(site, dow)
         JOIN date_range dr ON dr.dow = ss.dow
       ),
       per_day AS (
