@@ -105,6 +105,14 @@ export const ROBOTS: RobotConfig[] = [
   // and is split by hostname (see SITES below).
   { hostname: "myrmidon-pc",   sn: 61, nickname: "myrmidon",   site: "CookUnity NYC" },
   { hostname: "david-pc",      sn: 67, nickname: "david",      site: "CookUnity NYC" },
+
+  // Taylor Farms · Tracy, CA (6 robots)
+  { hostname: "mav-pc",        sn: 36,  nickname: "mav",        site: "Taylor Farms" },
+  { hostname: "awesomo-pc",    sn: 48,  nickname: "awesomo",    site: "Taylor Farms" },
+  { hostname: "kiryu-pc",      sn: 108, nickname: "kiryu",      site: "Taylor Farms" },
+  { hostname: "claptrap-pc",   sn: 110, nickname: "claptrap",   site: "Taylor Farms" },
+  { hostname: "bomberman-pc",  sn: 120, nickname: "bomberman",  site: "Taylor Farms" },
+  { hostname: "mimi-pc",       sn: 121, nickname: "mimi",       site: "Taylor Farms" },
 ];
 
 // Site → customer_id mapping. Amy's Medford and Pocatello share the same
@@ -136,6 +144,7 @@ export const SITES: SiteConfig[] = [
     hostnameWhitelist: ROBOTS.filter((r) => r.site === "CookUnity NYC").map((r) => r.hostname),
   },
   { site: "POH",             customerIds: ["openhand"] },
+  { site: "Taylor Farms",    customerIds: ["taylorfarms"] },
 ];
 
 // Reverse lookups built once at import time.

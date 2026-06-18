@@ -131,6 +131,15 @@ export const SITES: SiteInfo[] = [
     bqHostnameWhitelist: ["asimo-pc", "butter-pc", "preston-pc", "escaflowne-pc"],
   },
   {
+    name: "Taylor Farms",
+    timezone: "America/Los_Angeles", // Tracy, CA
+    operatingHours: "Mon-Sat",
+    scheduledDays: MON_SAT,
+    availableHrsPerDay: 17,
+    pylonNames: ["Taylor Farms"],
+    bqCustomerIds: ["taylorfarms"],
+  },
+  {
     // Excluded from the Metrics tab — rollup skips these robots, read API
     // hides them, and they don't appear in the site dropdown. Still listed
     // in fleet-config so Fleet/Tickets/Sites views show them normally.
