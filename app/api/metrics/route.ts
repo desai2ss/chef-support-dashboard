@@ -59,63 +59,106 @@ export async function GET(req: Request) {
     );
   }
 
-  // SQL bucket expression — postgres can group by these directly
-  // (date is stored as text YYYY-MM-DD).
-  const bucketSql =
+  // Two-step bucket expression (operates on per_day CTE.date column).
+  // - day:    bucket = date
+  // - week:   bucket = "YYYY-W##" ISO week
+  // - month:  bucket = "YYYY-MM"
+  const bucketExpr =
     grain === "day"
-      ? sql<string>`${schema.dailyMetrics.date}`
+      ? sql`date`
       : grain === "week"
-        ? sql<string>`to_char(to_date(${schema.dailyMetrics.date}, 'YYYY-MM-DD'), 'IYYY-"W"IW')`
-        : sql<string>`to_char(to_date(${schema.dailyMetrics.date}, 'YYYY-MM-DD'), 'YYYY-MM')`;
+        ? sql`to_char(to_date(date, 'YYYY-MM-DD'), 'IYYY-"W"IW')`
+        : sql`to_char(to_date(date, 'YYYY-MM-DD'), 'YYYY-MM')`;
 
-  // Build WHERE
-  const whereClauses = [
+  // Excluded-site early return
+  if (siteFilter && EXCLUDED_SITES.includes(siteFilter)) {
+    return NextResponse.json({
+      ok: true,
+      grain,
+      from,
+      to,
+      site: siteFilter,
+      rows: [],
+      daily: [],
+      excluded: true,
+    });
+  }
+
+  // Inner WHERE for per_day CTE
+  const innerWhere = [
+    sql`date BETWEEN ${from} AND ${to}`,
+  ];
+  if (siteFilter) {
+    innerWhere.push(sql`site = ${siteFilter}`);
+  } else if (EXCLUDED_SITES.length > 0) {
+    innerWhere.push(
+      sql`site NOT IN (${sql.join(
+        EXCLUDED_SITES.map((s) => sql`${s}`),
+        sql`, `
+      )})`
+    );
+  }
+  const whereSql = sql.join(innerWhere, sql` AND `);
+
+  // Also build the WHERE for the per-robot drilldown (uses Drizzle columns).
+  const driftWhere = [
     gte(schema.dailyMetrics.date, from),
     lte(schema.dailyMetrics.date, to),
   ];
   if (siteFilter) {
-    // If the user explicitly asked for an excluded site, return empty.
-    if (EXCLUDED_SITES.includes(siteFilter)) {
-      return NextResponse.json({
-        ok: true,
-        grain,
-        from,
-        to,
-        site: siteFilter,
-        rows: [],
-        daily: [],
-        excluded: true,
-      });
-    }
-    whereClauses.push(eq(schema.dailyMetrics.site, siteFilter));
+    driftWhere.push(eq(schema.dailyMetrics.site, siteFilter));
   } else if (EXCLUDED_SITES.length > 0) {
-    // Hide excluded sites from "All sites" rollup.
-    whereClauses.push(notInArray(schema.dailyMetrics.site, EXCLUDED_SITES));
+    driftWhere.push(notInArray(schema.dailyMetrics.site, EXCLUDED_SITES));
   }
 
   try {
-    // Rollup query
-    const rollup = await db
-      .select({
-        bucket: bucketSql.as("bucket"),
-        site: schema.dailyMetrics.site,
-        utilPctAvg: sql<number>`AVG(${schema.dailyMetrics.utilPct})`.as(
-          "util_pct_avg"
-        ),
-        uptimePctAvg: sql<number>`AVG(${schema.dailyMetrics.uptimePct})`.as(
-          "uptime_pct_avg"
-        ),
-        servingsSum: sql<number>`COALESCE(SUM(${schema.dailyMetrics.servings}), 0)`.as(
-          "servings_sum"
-        ),
-        robotsCount: sql<number>`COUNT(DISTINCT ${schema.dailyMetrics.sn})`.as(
-          "robots_count"
-        ),
-      })
-      .from(schema.dailyMetrics)
-      .where(and(...whereClauses))
-      .groupBy(bucketSql, schema.dailyMetrics.site)
-      .orderBy(bucketSql, schema.dailyMetrics.site);
+    // Two-step rollup: first average per (date, site), then aggregate over
+    // the bucket. This makes weekly = mean of daily means (the intuitive
+    // "average day in this period") rather than a row-weighted average that
+    // overweights days with more robot reports.
+    const result: any = await db.execute(sql`
+      WITH per_day AS (
+        SELECT
+          date,
+          site,
+          AVG(util_pct)::real      AS daily_util,
+          AVG(uptime_pct)::real    AS daily_uptime,
+          COALESCE(SUM(servings), 0)::bigint AS daily_servings,
+          COUNT(DISTINCT sn)       AS daily_robots
+        FROM daily_metrics
+        WHERE ${whereSql}
+        GROUP BY date, site
+      )
+      SELECT
+        ${bucketExpr}                        AS bucket,
+        site,
+        AVG(daily_util)::real                AS util_pct_avg,
+        AVG(daily_uptime)::real              AS uptime_pct_avg,
+        COALESCE(SUM(daily_servings), 0)::bigint AS servings_sum,
+        MAX(daily_robots)                    AS robots_count
+      FROM per_day
+      GROUP BY bucket, site
+      ORDER BY bucket, site
+    `);
+    const rawRows: any[] = Array.isArray(result?.rows)
+      ? result.rows
+      : Array.isArray(result)
+        ? result
+        : [];
+    const rollup = rawRows.map((r) => ({
+      bucket: String(r.bucket),
+      site: String(r.site),
+      utilPctAvg:
+        r.util_pct_avg === null || r.util_pct_avg === undefined
+          ? null
+          : Number(r.util_pct_avg),
+      uptimePctAvg:
+        r.uptime_pct_avg === null || r.uptime_pct_avg === undefined
+          ? null
+          : Number(r.uptime_pct_avg),
+      servingsSum: Number(r.servings_sum ?? 0),
+      robotsCount: Number(r.robots_count ?? 0),
+    }));
 
     // If grain=day AND a site is selected, also return per-robot daily rows
     // for the drilldown table / cell editor.
@@ -134,7 +177,7 @@ export async function GET(req: Request) {
           uptimeNote: schema.dailyMetrics.uptimeNote,
         })
         .from(schema.dailyMetrics)
-        .where(and(...whereClauses))
+        .where(and(...driftWhere))
         .orderBy(schema.dailyMetrics.date, schema.dailyMetrics.sn);
     }
 

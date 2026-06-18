@@ -1346,8 +1346,12 @@ function MethodologySection() {
                 spreadsheet (e.g. Amy&apos;s MED often hits 130-150%).
               </li>
               <li>
-                The bucket (day / week / month) rolls up util as a simple
-                average across the matching days for each site.
+                Weekly / monthly buckets are computed as the{" "}
+                <strong>average of daily averages</strong> (not row-weighted).
+                So if Mon had 3 robots reporting at 80% and Tue had 5 robots
+                at 20%, the weekly cell shows (80 + 20) / 2 = 50% — matching
+                the &ldquo;typical day in this period&rdquo; intuition rather
+                than weighting toward days with more reports.
               </li>
             </ul>
           </div>
