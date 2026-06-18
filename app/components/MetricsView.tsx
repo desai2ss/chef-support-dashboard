@@ -906,17 +906,15 @@ function PerRobotEditor({
     setSelected(next);
   }
 
-  // Visual style for a cell. Three states:
-  //  - non-scheduled day (dash, dimmed grey) — always wins, even if data exists
-  //  - scheduled but no data (0%, muted grey)
-  //  - has data (color by uptime)
+  // Visual style for a cell. Uptime defaults to 100% — if there's no row
+  // for a scheduled day, treat it as full uptime (emerald) rather than
+  // "no data" grey. The dash is reserved for non-scheduled days only.
   function cellStyle(
     row: DailyRow | undefined,
     scheduled: boolean
   ): string {
     if (!scheduled) return "bg-card text-muted/30";
-    if (!row) return "bg-cream/30 text-muted";
-    const u = row.uptimePct ?? 100;
+    const u = row?.uptimePct ?? 100;
     if (u >= 100) return "bg-emerald-50 text-emerald-900";
     if (u >= 75) return "bg-amber-50 text-amber-900";
     return "bg-red-50 text-red-900";
@@ -1085,19 +1083,19 @@ function PerRobotEditor({
                     >
                       {!scheduled ? (
                         <div className="text-[11px] text-muted/40">—</div>
-                      ) : row ? (
+                      ) : (
+                        // Uptime defaults to 100% on scheduled days even when
+                        // no daily_metrics row exists. u = row?.uptimePct ?? 100.
                         <>
                           <div className="tabular-nums text-[11px]">
                             {u.toFixed(0)}
                           </div>
-                          {hasDowntime && row.uptimePylonTicket ? (
+                          {hasDowntime && row?.uptimePylonTicket ? (
                             <div className="text-[9px] text-muted leading-tight">
                               #{row.uptimePylonTicket}
                             </div>
                           ) : null}
                         </>
-                      ) : (
-                        <div className="tabular-nums text-[11px]">0</div>
                       )}
                     </td>
                   );
@@ -1110,12 +1108,12 @@ function PerRobotEditor({
 
       <div className="mt-3 text-[11px] text-muted">
         Legend: <span className="px-1 bg-emerald-50 text-emerald-900">100</span>{" "}
-        full uptime ·{" "}
-        <span className="px-1 bg-amber-50 text-amber-900">75-99</span> partial ·{" "}
+        full uptime (default on every scheduled day) ·{" "}
+        <span className="px-1 bg-amber-50 text-amber-900">75-99</span> partial
+        downtime ·{" "}
         <span className="px-1 bg-red-50 text-red-900">&lt; 75</span> major
-        downtime · <span className="bg-cream/30 px-1">0</span> scheduled day
-        with no data ·{" "}
-        <span className="text-muted/40">—</span> not a scheduled run day
+        downtime · <span className="text-muted/40">—</span> not a scheduled
+        run day
       </div>
     </section>
   );
