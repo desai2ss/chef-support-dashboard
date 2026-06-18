@@ -7,6 +7,10 @@
 export type SiteInfo = {
   // Canonical display name shown in the UI.
   name: string;
+  // IANA timezone for the site (used to compute the local production day).
+  // Production day = local 2:00am to next-day 1:59am. So sessions through
+  // 1:59am roll up to the previous calendar day.
+  timezone: string;
   // Short operating-hours label for the card subtitle.
   operatingHours: string;
   // Days of week this site normally operates. Encoded as JS getDay() values:
@@ -53,6 +57,7 @@ const FRI_TUE = [5, 6, 0, 1, 2]; // Fri, Sat, Sun, Mon, Tue
 export const SITES: SiteInfo[] = [
   {
     name: "Café Spice",
+    timezone: "America/New_York",
     operatingHours: "Mon-Sat · 8am-6pm EST",
     scheduledDays: MON_SAT,
     availableHrsPerDay: 10,
@@ -61,6 +66,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "Amy's Medford",
+    timezone: "America/Los_Angeles",
     operatingHours: "Mon-Fri · 6am-11:59pm PST",
     scheduledDays: MON_FRI,
     availableHrsPerDay: 16,
@@ -70,6 +76,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "Amy's Pocatello",
+    timezone: "America/Boise", // Pocatello, ID is in Mountain time (no DST oddities)
     operatingHours: "Mon-Fri · 6am-11:59pm MST",
     scheduledDays: MON_FRI,
     availableHrsPerDay: 16,
@@ -79,6 +86,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "Chef Bombay",
+    timezone: "America/Edmonton", // Nisku, Alberta — MDT/MST
     operatingHours: "Mon-Fri",
     scheduledDays: MON_FRI,
     availableHrsPerDay: 17,
@@ -87,6 +95,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "F&S Foods",
+    timezone: "America/New_York", // Vineland, NJ
     operatingHours: "Mon-Sat · 7am-5pm EST",
     scheduledDays: MON_SAT,
     availableHrsPerDay: 10,
@@ -95,6 +104,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "Bonduelle",
+    timezone: "America/Los_Angeles", // Irwindale, CA
     operatingHours: "Mon-Sat",
     scheduledDays: MON_SAT,
     availableHrsPerDay: 16,
@@ -103,6 +113,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "POH",
+    timezone: "America/Los_Angeles", // Openhand SF
     operatingHours: "Mon-Fri",
     scheduledDays: MON_FRI,
     availableHrsPerDay: 4,
@@ -111,6 +122,7 @@ export const SITES: SiteInfo[] = [
   },
   {
     name: "CookUnity LAX",
+    timezone: "America/Los_Angeles",
     operatingHours: "Fri-Tue · 8 hrs/day (closed Wed/Thu)",
     scheduledDays: FRI_TUE,
     availableHrsPerDay: 8,
@@ -123,6 +135,7 @@ export const SITES: SiteInfo[] = [
     // hides them, and they don't appear in the site dropdown. Still listed
     // in fleet-config so Fleet/Tickets/Sites views show them normally.
     name: "CookUnity NYC",
+    timezone: "America/New_York",
     operatingHours: "Fri-Wed (closed Thu)",
     scheduledDays: [5, 6, 0, 1, 2, 3], // Fri-Wed (placeholder; not used since excluded)
     availableHrsPerDay: 8,

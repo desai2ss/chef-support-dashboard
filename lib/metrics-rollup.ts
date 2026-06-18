@@ -17,11 +17,48 @@ import { ROBOTS, siteFor } from "@/lib/fleet-config";
 const AVAILABLE_HRS = new Map(
   SITES.map((s) => [s.name, s.availableHrsPerDay])
 );
+// Map site name -> IANA timezone (for local production-day bucketing).
+const SITE_TZ = new Map(SITES.map((s) => [s.name, s.timezone]));
 // Sites marked excludeFromMetrics: their robots are skipped in the rollup
 // so daily_metrics never gets new rows for them.
 const EXCLUDED_SITES = new Set(
   SITES.filter((s) => s.excludeFromMetrics).map((s) => s.name)
 );
+
+// Compute the customer-local production date for a UTC timestamp.
+// Production day runs [local 2:00am, next-day local 1:59am]. So we shift
+// the local wall clock back by 2 hours and take the calendar date.
+//
+//   utcIso: BigQuery DATETIME string like "2026-06-08T23:30:00" (no zone;
+//           treated as UTC since BQ stores in UTC by convention here)
+//   tz:     IANA timezone string ("America/Los_Angeles")
+//
+// Returns "YYYY-MM-DD".
+function productionDateForUtc(utcIso: string, tz: string): string {
+  const ts = new Date(utcIso.endsWith("Z") ? utcIso : utcIso + "Z");
+  if (Number.isNaN(ts.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+  }).formatToParts(ts);
+  const get = (t: string) =>
+    parts.find((p) => p.type === t)?.value ?? "";
+  const y = Number(get("year"));
+  const m = Number(get("month")) - 1;
+  const d = Number(get("day"));
+  const h = Number(get("hour"));
+  // Synthetic UTC date matching the local wall clock, shift back by 2h.
+  const synth = new Date(Date.UTC(y, m, d, h));
+  synth.setUTCHours(synth.getUTCHours() - 2);
+  const yy = synth.getUTCFullYear();
+  const mm = String(synth.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(synth.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
 
 // Map hostname -> { sn, site }
 const HOSTNAME_LOOKUP = new Map(
@@ -99,7 +136,7 @@ async function getAccessToken(): Promise<string> {
 // ---- BQ query: one row per PRODUCTION session in the date range ----
 
 type SessionRow = {
-  prod_date: string;
+  start_time_iso: string; // BQ DATETIME (treated as UTC), e.g. "2026-06-08T23:30:00"
   hostname: string;
   customer_id: string;
   duration_sec: number;
@@ -123,15 +160,20 @@ async function querySessions(
   // caps in JS (where the SITES config lives). We still filter clearly
   // garbage sessions in SQL (> 48h is definitely a stuck agent) to keep the
   // result set small. Per-site caps are enforced after the fetch.
+  // Pull raw start_time so JS can compute the local production date per
+  // site. Date filter is expanded by ±1 day to catch sessions that straddle
+  // midnight UTC but belong to a different local production day.
   const sqlStr = `
     SELECT
-      FORMAT_DATE('%Y-%m-%d', DATE(start_time)) AS prod_date,
+      FORMAT_DATETIME('%Y-%m-%dT%H:%M:%S', start_time) AS start_time_iso,
       hostname,
       customer_id,
       DATETIME_DIFF(end_time, start_time, SECOND) AS duration_sec,
       COALESCE(bowl_count, 0) AS bowl_count
     FROM \`${table}\`
-    WHERE DATE(start_time) BETWEEN @from AND @to
+    WHERE DATE(start_time)
+            BETWEEN DATE_SUB(@from, INTERVAL 1 DAY)
+                AND DATE_ADD(@to, INTERVAL 1 DAY)
       AND end_time IS NOT NULL
       AND end_time > start_time
       AND DATETIME_DIFF(end_time, start_time, HOUR) <= 48
@@ -174,7 +216,7 @@ async function querySessions(
       obj[name] = r.f[i]?.v;
     });
     return {
-      prod_date: String(obj.prod_date ?? ""),
+      start_time_iso: String(obj.start_time_iso ?? ""),
       hostname: String(obj.hostname ?? ""),
       customer_id: String(obj.customer_id ?? ""),
       duration_sec: Number(obj.duration_sec ?? 0),
@@ -227,6 +269,7 @@ export async function runRollup(
   const aggregated = new Map<string, Agg>();
 
   let excludedSiteSessions = 0;
+  let outOfRangeSessions = 0;
   for (const sess of sessions) {
     const robot = HOSTNAME_LOOKUP.get(sess.hostname);
     if (!robot) {
@@ -240,6 +283,15 @@ export async function runRollup(
       excludedSiteSessions++;
       continue;
     }
+    // Compute the customer-local production date (2am boundary).
+    const tz = SITE_TZ.get(site) ?? "UTC";
+    const prodDate = productionDateForUtc(sess.start_time_iso, tz);
+    // Drop sessions that fall outside the requested window after the TZ shift
+    // (we widened the BQ filter by ±1 day to capture boundary sessions).
+    if (prodDate < from || prodDate > to) {
+      outOfRangeSessions++;
+      continue;
+    }
     const availHrs = AVAILABLE_HRS.get(site);
     // Cap this session at (availHrsPerDay × 1.5). Default to 24h when site
     // is unknown so a single bogus session can't blow up the total.
@@ -249,7 +301,7 @@ export async function runRollup(
     const sessionHours = Math.min(sessionHoursRaw, maxSessionHours);
     if (sessionHoursRaw > maxSessionHours) cappedSessions++;
 
-    const key = `${robot.sn}|${sess.prod_date}`;
+    const key = `${robot.sn}|${prodDate}`;
     const existing = aggregated.get(key);
     if (existing) {
       existing.productionHours += sessionHours;
@@ -257,7 +309,7 @@ export async function runRollup(
     } else {
       aggregated.set(key, {
         sn: robot.sn,
-        date: sess.prod_date,
+        date: prodDate,
         site,
         productionHours: sessionHours,
         servings: sess.bowl_count,
