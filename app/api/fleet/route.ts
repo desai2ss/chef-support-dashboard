@@ -32,6 +32,7 @@ type SiteRollup = {
     onboarded: boolean;
     online: boolean;
     rssiDbm: number | null;
+    pendingFilesUpload: number | null;
   }[];
 };
 
@@ -107,6 +108,7 @@ export async function GET() {
           onboarded: !!bq, // "onboarded" = has BQ session data in last 7 days
           online: dd?.online ?? false, // live Datadog heartbeat
           rssiDbm: dd?.wirelessRssiDbm ?? null,
+          pendingFilesUpload: dd?.pendingFilesUpload ?? null,
         };
       });
       const withData = rows.filter((r) => r.utilPct !== null);

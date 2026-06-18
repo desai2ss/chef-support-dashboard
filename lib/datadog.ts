@@ -22,6 +22,11 @@ const METRIC_AGENT_RUNNING = "datadog.agent.running";
 // Module Overview dashboard). Recent value = network signal strength in dBm.
 const METRIC_WIRELESS_RSSI = "wireless_rssi";
 
+// `files_pending_upload.avg` is a Gauge published by the Chef robot agent.
+// Value = current count of files queued locally that haven't been uploaded
+// to Datadog/BQ yet. Low = caught up; high = backlog.
+const METRIC_FILES_PENDING_UPLOAD = "files_pending_upload.avg";
+
 export type ModuleHealth = {
   // The Datadog host tag value (e.g. "asimo-pc"). Matches BigQuery hostname.
   moduleId: string;
@@ -30,6 +35,9 @@ export type ModuleHealth = {
   online: boolean;
   // Latest wireless signal strength in dBm (typically -30 strong … -90 weak).
   wirelessRssiDbm: number | null;
+  // Most recent files_pending_upload.avg value — how many files queued
+  // locally on the robot waiting to upload to Datadog/BQ. null = no data.
+  pendingFilesUpload: number | null;
   // ISO timestamp of the most recent agent heartbeat.
   lastSeen: string | null;
   // Deprecated legacy fields — kept for back-compat with the old Dashboard
@@ -96,7 +104,7 @@ export async function fetchModuleHealth(): Promise<ModuleHealth[]> {
   // that's actually online will have lots of data points here.
   const oneHourAgo = now - 60 * 60;
 
-  const [heartbeat, rssi] = await Promise.all([
+  const [heartbeat, rssi, pendingUpload] = await Promise.all([
     queryScalar(
       `avg:${METRIC_AGENT_RUNNING}{*} by {${MODULE_TAG}}`,
       oneHourAgo,
@@ -104,6 +112,11 @@ export async function fetchModuleHealth(): Promise<ModuleHealth[]> {
     ),
     queryScalar(
       `avg:${METRIC_WIRELESS_RSSI}{*} by {${MODULE_TAG}}`,
+      oneHourAgo,
+      now
+    ),
+    queryScalar(
+      `avg:${METRIC_FILES_PENDING_UPLOAD}{*} by {${MODULE_TAG}}`,
       oneHourAgo,
       now
     ),
@@ -120,6 +133,7 @@ export async function fetchModuleHealth(): Promise<ModuleHealth[]> {
       // Online = last heartbeat within 10 minutes.
       online: s.lastTs !== null && now * 1000 - s.lastTs < 10 * 60 * 1000,
       wirelessRssiDbm: null,
+      pendingFilesUpload: null,
       lastSeen: s.lastTs ? new Date(s.lastTs).toISOString() : null,
       picksTotal: null,
       networkLatencyMs: null,
@@ -134,11 +148,31 @@ export async function fetchModuleHealth(): Promise<ModuleHealth[]> {
     if (cur) {
       cur.wirelessRssiDbm = s.latest;
     } else {
-      // Robot has RSSI but no heartbeat? Unusual but include it.
       byId.set(id, {
         moduleId: id,
         online: s.lastTs !== null && now * 1000 - s.lastTs < 10 * 60 * 1000,
         wirelessRssiDbm: s.latest,
+        pendingFilesUpload: null,
+        lastSeen: s.lastTs ? new Date(s.lastTs).toISOString() : null,
+        picksTotal: null,
+        networkLatencyMs: null,
+      });
+    }
+  }
+
+  // Layer in files-pending-upload where available.
+  for (const s of pendingUpload) {
+    const id = tagFromScope(s.scope, MODULE_TAG);
+    if (!id) continue;
+    const cur = byId.get(id);
+    if (cur) {
+      cur.pendingFilesUpload = s.latest;
+    } else {
+      byId.set(id, {
+        moduleId: id,
+        online: s.lastTs !== null && now * 1000 - s.lastTs < 10 * 60 * 1000,
+        wirelessRssiDbm: null,
+        pendingFilesUpload: s.latest,
         lastSeen: s.lastTs ? new Date(s.lastTs).toISOString() : null,
         picksTotal: null,
         networkLatencyMs: null,

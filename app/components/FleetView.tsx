@@ -15,6 +15,7 @@ type Robot = {
   onboarded: boolean;
   online: boolean;
   rssiDbm: number | null;
+  pendingFilesUpload: number | null;
 };
 
 type Site = {
@@ -378,8 +379,28 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Convert files-pending-upload count into a 0..100 "synced %" for the bar.
+// Bar is filled = caught up. We use a log-ish scale so 0 = 100% sync,
+// 50 files = ~85%, 500 = ~50%, 5000+ = ~0%.
+function uploadSyncPct(pending: number | null): number | null {
+  if (pending === null || pending === undefined || !Number.isFinite(pending)) {
+    return null;
+  }
+  if (pending <= 0) return 100;
+  // log10(pending+1) / log10(10001) → 0..1
+  const norm = Math.log10(pending + 1) / Math.log10(10001);
+  return Math.max(0, Math.min(100, (1 - norm) * 100));
+}
+
+function uploadSyncColor(syncPct: number | null): string {
+  if (syncPct === null) return "bg-line";
+  if (syncPct >= 90) return "bg-emerald-500";
+  if (syncPct >= 60) return "bg-amber-500";
+  return "bg-rose-500";
+}
+
 function RobotCard({ r }: { r: Robot }) {
-  const pct = r.utilPct;
+  const sync = uploadSyncPct(r.pendingFilesUpload);
   // Online dot: Datadog heartbeat in last ~10min. Falls back to BQ session
   // activity (onboarded) if Datadog hasn't seen this robot at all.
   const onlineDot = r.online
@@ -404,26 +425,41 @@ function RobotCard({ r }: { r: Robot }) {
         </div>
         <span className={"inline-block w-2 h-2 rounded-full " + onlineDot} />
       </div>
-      <div className="mb-2">
+      {/* Upload-sync bar. Filled = caught up; empty = backlog. */}
+      <div
+        className="mb-2"
+        title={
+          r.pendingFilesUpload === null
+            ? "files_pending_upload not reporting"
+            : `${r.pendingFilesUpload.toLocaleString()} files pending upload to Datadog`
+        }
+      >
         <div className="h-2 bg-line rounded overflow-hidden">
           <div
-            className={"h-full " + utilColor(pct)}
-            style={{ width: `${Math.min(100, Math.max(0, pct ?? 0))}%` }}
+            className={"h-full " + uploadSyncColor(sync)}
+            style={{ width: `${sync ?? 0}%` }}
           />
         </div>
-        <div className="flex justify-end text-xs mt-1">
+        <div className="flex justify-between text-xs mt-1">
+          <span className="text-muted text-[10px] uppercase tracking-wider">
+            Upload sync
+          </span>
           <span
             className={
-              pct === null
+              sync === null
                 ? "text-muted"
-                : pct >= 80
+                : sync >= 90
                 ? "text-emerald-400"
-                : pct >= 60
+                : sync >= 60
                 ? "text-amber-400"
                 : "text-rose-400"
             }
           >
-            {fmtPct(pct)}
+            {r.pendingFilesUpload === null
+              ? "—"
+              : r.pendingFilesUpload === 0
+              ? "caught up"
+              : `${r.pendingFilesUpload.toLocaleString()} pending`}
           </span>
         </div>
       </div>
