@@ -765,19 +765,27 @@ export default function MetricsView({ editor }: { editor: boolean }) {
 
       {/* Per-robot daily uptime editor — only when grain=day AND site is selected */}
       {grain === "day" && siteFilter ? (
-        <PerRobotEditor
-          site={siteFilter}
-          from={from}
-          to={to}
-          daily={data?.daily ?? []}
-          editor={editor}
-          selected={selected}
-          setSelected={setSelected}
-          anchor={anchor}
-          setAnchor={setAnchor}
-          onEdit={() => setEditorOpen(true)}
-          banner={editorBanner}
-        />
+        <>
+          <PerRobotUtil
+            site={siteFilter}
+            from={from}
+            to={to}
+            daily={data?.daily ?? []}
+          />
+          <PerRobotEditor
+            site={siteFilter}
+            from={from}
+            to={to}
+            daily={data?.daily ?? []}
+            editor={editor}
+            selected={selected}
+            setSelected={setSelected}
+            anchor={anchor}
+            setAnchor={setAnchor}
+            onEdit={() => setEditorOpen(true)}
+            banner={editorBanner}
+          />
+        </>
       ) : null}
 
       {/* Edit Downtime modal */}
@@ -798,6 +806,168 @@ export default function MetricsView({ editor }: { editor: boolean }) {
       {/* Methodology — explains exactly how every number is calculated */}
       <MethodologySection />
     </div>
+  );
+}
+
+// ---- Per-robot daily utilization (read-only, mirrors PerRobotEditor layout)
+function PerRobotUtil({
+  site,
+  from,
+  to,
+  daily,
+}: {
+  site: string;
+  from: string;
+  to: string;
+  daily: DailyRow[];
+}) {
+  const dates = useMemo(() => {
+    const out: string[] = [];
+    const start = new Date(from + "T00:00:00Z");
+    const end = new Date(to + "T00:00:00Z");
+    const cur = new Date(start);
+    while (cur <= end) {
+      const y = cur.getUTCFullYear();
+      const m = String(cur.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(cur.getUTCDate()).padStart(2, "0");
+      out.push(`${y}-${m}-${d}`);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return out;
+  }, [from, to]);
+
+  const robots = useMemo(
+    () => ROBOTS.filter((r) => r.site === site).sort((a, b) => a.sn - b.sn),
+    [site]
+  );
+
+  const cellMap = useMemo(() => {
+    const m = new Map<string, DailyRow>();
+    for (const d of daily) m.set(`${d.sn}|${d.date}`, d);
+    return m;
+  }, [daily]);
+
+  function utilCellStyle(
+    utilPct: number | null | undefined,
+    scheduled: boolean,
+    hasRow: boolean
+  ): string {
+    if (!scheduled) return "bg-card text-muted/30";
+    if (!hasRow || utilPct == null) return "bg-cream/30 text-muted";
+    if (utilPct >= 80) return "bg-emerald-50 text-emerald-900";
+    if (utilPct >= 50) return "bg-amber-50 text-amber-900";
+    return "bg-red-50 text-red-900";
+  }
+
+  return (
+    <section className="mb-5 rounded-xl border border-line bg-card p-5">
+      <div className="flex justify-between items-end mb-3 flex-wrap gap-3">
+        <div>
+          <h2 className="text-base font-semibold">
+            Per-robot daily utilization — {site}
+          </h2>
+          <div className="text-xs text-muted mt-0.5">
+            Util % per (robot, day). Read-only — to edit a robot&apos;s
+            downtime, use the uptime editor below.
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-muted">
+              <th className="text-left py-2 px-2 sticky left-0 bg-card font-medium">
+                Robot
+              </th>
+              {dates.map((d) => {
+                const f = formatBucket(d, "day");
+                return (
+                  <th
+                    key={d}
+                    className="text-center py-2 px-1 font-medium"
+                    title={d}
+                  >
+                    <div className="leading-tight">{f.line1}</div>
+                    <div className="font-normal normal-case text-muted text-[10px] leading-tight tabular-nums">
+                      {f.line2}
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {robots.map((r) => (
+              <tr key={r.sn} className="border-t border-line">
+                <td className="py-1 px-2 sticky left-0 bg-card text-ink font-medium whitespace-nowrap">
+                  SN{r.sn}{" "}
+                  <span className="text-muted">
+                    {r.nickname}
+                    {r.spare ? " · spare" : ""}
+                  </span>
+                </td>
+                {dates.map((d) => {
+                  const row = cellMap.get(`${r.sn}|${d}`);
+                  const scheduled = isDayScheduled(site, d);
+                  const utilPct = row?.utilPct;
+                  return (
+                    <td
+                      key={d}
+                      className={
+                        "py-1 px-1 text-center align-middle border-l border-line/40 " +
+                        utilCellStyle(utilPct, scheduled, !!row)
+                      }
+                      title={
+                        !scheduled
+                          ? row
+                            ? `Not a scheduled run day (robot reported ${row.productionHours?.toFixed(1) ?? "?"}h anyway)`
+                            : "Not a scheduled run day"
+                          : row
+                            ? [
+                                utilPct != null
+                                  ? `util ${utilPct.toFixed(0)}%`
+                                  : "no util data",
+                                row.productionHours != null
+                                  ? `${row.productionHours.toFixed(1)}h production`
+                                  : null,
+                                row.servings != null && row.servings > 0
+                                  ? `${row.servings.toLocaleString()} servings`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : "Scheduled — no BQ data"
+                      }
+                    >
+                      {!scheduled ? (
+                        <div className="text-[11px] text-muted/40">—</div>
+                      ) : row && utilPct != null ? (
+                        <div className="tabular-nums text-[11px]">
+                          {utilPct.toFixed(0)}
+                        </div>
+                      ) : (
+                        <div className="tabular-nums text-[11px]">0</div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 text-[11px] text-muted">
+        Legend:{" "}
+        <span className="px-1 bg-emerald-50 text-emerald-900">&ge; 80</span>{" "}
+        healthy ·{" "}
+        <span className="px-1 bg-amber-50 text-amber-900">50-79</span> partial ·{" "}
+        <span className="px-1 bg-red-50 text-red-900">&lt; 50</span> low ·{" "}
+        <span className="bg-cream/30 px-1">0</span> scheduled, no data ·{" "}
+        <span className="text-muted/40">—</span> not a scheduled run day
+      </div>
+    </section>
   );
 }
 
