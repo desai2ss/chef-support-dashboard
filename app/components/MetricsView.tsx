@@ -108,12 +108,13 @@ function formatBucket(
 }
 
 // ---- presets -------------------------------------------------------------
-type Preset = { label: string; days: number };
+type Preset = { label: string; days?: number; ytd?: boolean };
 const PRESETS: Preset[] = [
   { label: "Last 7 days", days: 7 },
   { label: "Last 30 days", days: 30 },
-  { label: "Last 60 days", days: 60 },
   { label: "Last 90 days", days: 90 },
+  { label: "Last 180 days", days: 180 },
+  { label: "YTD", ytd: true },
 ];
 
 type Grain = "day" | "week" | "month";
@@ -334,8 +335,16 @@ export default function MetricsView({ editor }: { editor: boolean }) {
   }, [data]);
 
   function applyPreset(p: Preset) {
-    setFrom(fmtDate(addDays(today, -p.days)));
-    setTo(fmtDate(today));
+    if (p.ytd) {
+      const jan1 = new Date(today.getFullYear(), 0, 1);
+      setFrom(fmtDate(jan1));
+      setTo(fmtDate(today));
+      return;
+    }
+    if (typeof p.days === "number") {
+      setFrom(fmtDate(addDays(today, -p.days)));
+      setTo(fmtDate(today));
+    }
   }
 
   function handleDownload() {
