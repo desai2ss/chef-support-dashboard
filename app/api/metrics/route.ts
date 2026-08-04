@@ -121,39 +121,54 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Generate the full scheduled-day grid (site × scheduled day in range),
-    // then LEFT JOIN to daily_metrics. Empty cells get util=0, uptime=100,
-    // servings=0 — matching what the UI shows. This way weekly/monthly
-    // averages reconcile with what you see in the daily table.
+    // Cross-join sites × all calendar days in the range (not just scheduled
+    // days). We mark is_scheduled per (site, date) using a LEFT JOIN against
+    // the schedule grid. Then in the outer SELECT:
+    //  - Util / uptime: AVG only over scheduled days (CASE WHEN gate)
+    //  - Servings: SUM across ALL days so off-schedule production still
+    //    counts toward totals (matches Remy / VC DD numbers).
     const result: any = await db.execute(sql`
       WITH date_range AS (
         SELECT d::date AS date_col, EXTRACT(DOW FROM d)::int AS dow
         FROM generate_series(${from}::date, ${to}::date, '1 day'::interval) d
       ),
-      scheduled_days AS (
-        SELECT ss.site, dr.date_col AS date_col
+      schedule AS (
+        SELECT site, dow
         FROM ${sql.raw(siteScheduleSql)} AS ss(site, dow)
-        JOIN date_range dr ON dr.dow = ss.dow
+      ),
+      sites_in_play AS (
+        SELECT DISTINCT site FROM schedule
+      ),
+      all_site_days AS (
+        SELECT sip.site, dr.date_col, dr.dow
+        FROM sites_in_play sip
+        CROSS JOIN date_range dr
       ),
       per_day AS (
         SELECT
-          sd.site,
-          to_char(sd.date_col, 'YYYY-MM-DD') AS date,
-          COALESCE(AVG(dm.util_pct), 0)::real     AS daily_util,
+          asd.site,
+          to_char(asd.date_col, 'YYYY-MM-DD') AS date,
+          CASE WHEN sch.dow IS NOT NULL THEN true ELSE false END AS is_scheduled,
+          AVG(dm.util_pct)::real                  AS daily_util,
           COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
           COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
           COUNT(DISTINCT dm.sn)                   AS daily_robots
-        FROM scheduled_days sd
+        FROM all_site_days asd
+        LEFT JOIN schedule sch
+          ON sch.site = asd.site AND sch.dow = asd.dow
         LEFT JOIN daily_metrics dm
-          ON dm.site = sd.site
-         AND dm.date = to_char(sd.date_col, 'YYYY-MM-DD')
-        GROUP BY sd.site, sd.date_col
+          ON dm.site = asd.site
+         AND dm.date = to_char(asd.date_col, 'YYYY-MM-DD')
+        GROUP BY asd.site, asd.date_col, sch.dow
       )
       SELECT
         ${bucketExpr}                            AS bucket,
         site,
-        AVG(daily_util)::real                    AS util_pct_avg,
-        AVG(daily_uptime)::real                  AS uptime_pct_avg,
+        -- Util/uptime: averaged ONLY over scheduled days.
+        -- Empty scheduled days count as 0 util / default uptime.
+        AVG(CASE WHEN is_scheduled THEN COALESCE(daily_util, 0) END)::real AS util_pct_avg,
+        AVG(CASE WHEN is_scheduled THEN daily_uptime ELSE NULL END)::real AS uptime_pct_avg,
+        -- Servings: sum across ALL days regardless of schedule
         COALESCE(SUM(daily_servings), 0)::bigint AS servings_sum,
         MAX(daily_robots)                        AS robots_count
       FROM per_day
