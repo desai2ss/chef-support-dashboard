@@ -1990,6 +1990,19 @@ function LineChart({
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
+  // Hover tooltip — HTML overlay above the SVG, follows the mouse.
+  // Native <title> was unreliable (took too long to appear, easy to miss).
+  const [hover, setHover] = useState<{
+    site: string;
+    bucket: string;
+    util: number;
+    hours: number;
+    robots: number;
+    color: string;
+    x: number; // px relative to wrapper
+    y: number;
+  } | null>(null);
+
   if (buckets.length === 0 || sites.length === 0) {
     return (
       <div className="text-muted text-sm py-6 text-center">
@@ -2012,11 +2025,12 @@ function LineChart({
   if (yMax > 100) yTicks.push(yMax);
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full overflow-x-auto relative">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         style={{ minWidth: 600 }}
+        onMouseLeave={() => setHover(null)}
       >
         {/* Y-axis grid */}
         {yTicks.map((t) => (
@@ -2110,10 +2124,6 @@ function LineChart({
                 const color = SITE_COLORS[si % SITE_COLORS.length];
                 const hrs = Number(cell?.hoursSum ?? 0);
                 const nRobots = Number(cell?.robotsCount ?? 0);
-                const hoursLabel =
-                  hrs > 0
-                    ? ` · ${hrs.toFixed(1)}h run${nRobots > 0 ? ` across ${nRobots} robot${nRobots === 1 ? "" : "s"}` : ""}`
-                    : "";
                 return (
                   <rect
                     key={site}
@@ -2123,8 +2133,28 @@ function LineChart({
                     height={Math.max(0.5, barH)}
                     fill={color}
                     opacity={0.9}
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={(e) => {
+                      const svg = (e.currentTarget as SVGRectElement)
+                        .ownerSVGElement;
+                      if (!svg) return;
+                      const svgRect = svg.getBoundingClientRect();
+                      // Position tooltip near the top of the bar, in wrapper coords.
+                      const scaleX = svgRect.width / W;
+                      const scaleY = svgRect.height / H;
+                      setHover({
+                        site,
+                        bucket: b,
+                        util: v,
+                        hours: hrs,
+                        robots: nRobots,
+                        color,
+                        x: (x + barW / 2) * scaleX,
+                        y: y * scaleY,
+                      });
+                    }}
                   >
-                    <title>{`${site} · ${b} · ${v.toFixed(1)}%${hoursLabel}`}</title>
+                    <title>{`${site} · ${b} · ${v.toFixed(1)}%${hrs > 0 ? ` · ${hrs.toFixed(1)}h across ${nRobots} robots` : ""}`}</title>
                   </rect>
                 );
               })}
@@ -2132,6 +2162,48 @@ function LineChart({
           );
         })}
       </svg>
+
+      {/* HTML overlay tooltip — anchored above the hovered bar */}
+      {hover ? (
+        <div
+          className="pointer-events-none absolute z-10 rounded-md border border-line bg-card shadow-lg px-3 py-2 text-xs"
+          style={{
+            left: hover.x,
+            top: Math.max(0, hover.y - 12),
+            transform: "translate(-50%, -100%)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-sm"
+              style={{ background: hover.color }}
+            />
+            <span className="font-semibold text-ink">{hover.site}</span>
+            <span className="text-muted">· {hover.bucket}</span>
+          </div>
+          <div className="tabular-nums text-ink">
+            {hover.util.toFixed(1)}% util
+            {hover.hours > 0 ? (
+              <>
+                {" · "}
+                <span className="font-medium">
+                  {hover.hours.toFixed(1)}h run
+                </span>
+                {hover.robots > 0 ? (
+                  <span className="text-muted">
+                    {" "}
+                    across {hover.robots} robot
+                    {hover.robots === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-muted"> · no hours reported</span>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-2">
