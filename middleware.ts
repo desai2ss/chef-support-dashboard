@@ -4,7 +4,11 @@ import { NextResponse } from "next/server";
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isAuthRoute = pathname.startsWith("/api/auth") || pathname.startsWith("/signin");
-  if (isAuthRoute) return NextResponse.next();
+  // Cron endpoints authenticate themselves via CRON_SECRET Bearer header.
+  // If we let middleware guard them, Vercel-cron's GET is redirected to
+  // /signin (307), the rollup never runs, and no error surfaces in logs.
+  const isCronRoute = pathname.startsWith("/api/cron");
+  if (isAuthRoute || isCronRoute) return NextResponse.next();
   if (!req.auth) {
     const signinUrl = new URL("/signin", req.nextUrl.origin);
     signinUrl.searchParams.set("callbackUrl", pathname);

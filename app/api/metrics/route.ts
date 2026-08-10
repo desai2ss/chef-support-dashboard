@@ -152,6 +152,7 @@ export async function GET(req: Request) {
           AVG(dm.util_pct)::real                  AS daily_util,
           COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
           COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
+          COALESCE(SUM(dm.production_hours), 0)::real AS daily_hours,
           COUNT(DISTINCT dm.sn)                   AS daily_robots
         FROM all_site_days asd
         LEFT JOIN schedule sch
@@ -170,6 +171,8 @@ export async function GET(req: Request) {
         AVG(CASE WHEN is_scheduled THEN daily_uptime ELSE NULL END)::real AS uptime_pct_avg,
         -- Servings: sum across ALL days regardless of schedule
         COALESCE(SUM(daily_servings), 0)::bigint AS servings_sum,
+        -- Production hours: sum across ALL days (rolls up per-robot hours)
+        COALESCE(SUM(daily_hours), 0)::real      AS hours_sum,
         MAX(daily_robots)                        AS robots_count
       FROM per_day
       GROUP BY bucket, site
@@ -192,6 +195,7 @@ export async function GET(req: Request) {
           ? null
           : Number(r.uptime_pct_avg),
       servingsSum: Number(r.servings_sum ?? 0),
+      hoursSum: Number(r.hours_sum ?? 0),
       robotsCount: Number(r.robots_count ?? 0),
     }));
 

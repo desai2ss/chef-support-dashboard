@@ -20,7 +20,11 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
 
-const ROLLUP_DAYS = 3;
+// Roll up the last 7 days on every run. Wider than needed (yesterday would
+// suffice) so an occasional missed run auto-heals — the next cron will
+// re-do the previous week. Upserts are idempotent, so this doesn't disturb
+// manual uptime entries.
+const ROLLUP_DAYS = 7;
 
 function fmtUtcDate(d: Date): string {
   const y = d.getUTCFullYear();
@@ -64,6 +68,12 @@ async function handle(req: Request) {
       fmtUtcDate(from),
       fmtUtcDate(today)
     );
+    // Log to Vercel's function log for observability. Shows up in Vercel →
+    // your project → Deployments → latest → Logs, filtered by this path.
+    // eslint-disable-next-line no-console
+    console.log(
+      `[cron/metrics-rollup] OK ${result.from}..${result.to} — scanned=${result.rowsScanned} written=${result.rowsWritten} skipped=${result.rowsSkipped}${result.unknownHostnames.length ? ` unknown=${result.unknownHostnames.join(",")}` : ""}`
+    );
     return NextResponse.json({
       ok: true,
       ranAt: new Date().toISOString(),
@@ -71,10 +81,14 @@ async function handle(req: Request) {
       ...result,
     });
   } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    // eslint-disable-next-line no-console
+    console.error(`[cron/metrics-rollup] FAIL:`, msg);
     return NextResponse.json(
       {
         ok: false,
-        error: e?.message ?? "Rollup failed",
+        error: msg,
+        stack: e?.stack ? String(e.stack).slice(0, 800) : undefined,
       },
       { status: 500 }
     );

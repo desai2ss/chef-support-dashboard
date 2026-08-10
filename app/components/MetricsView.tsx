@@ -14,6 +14,7 @@ type RollupRow = {
   utilPctAvg: number | null;
   uptimePctAvg: number | null;
   servingsSum: number | null;
+  hoursSum: number | null;
   robotsCount: number;
 };
 
@@ -2107,6 +2108,12 @@ function LineChart({
                 const x = groupLeft + si * barW;
                 const y = padT + plotH - barH;
                 const color = SITE_COLORS[si % SITE_COLORS.length];
+                const hrs = Number(cell?.hoursSum ?? 0);
+                const nRobots = Number(cell?.robotsCount ?? 0);
+                const hoursLabel =
+                  hrs > 0
+                    ? ` · ${hrs.toFixed(1)}h run${nRobots > 0 ? ` across ${nRobots} robot${nRobots === 1 ? "" : "s"}` : ""}`
+                    : "";
                 return (
                   <rect
                     key={site}
@@ -2117,7 +2124,7 @@ function LineChart({
                     fill={color}
                     opacity={0.9}
                   >
-                    <title>{`${site} · ${b} · ${v.toFixed(1)}%`}</title>
+                    <title>{`${site} · ${b} · ${v.toFixed(1)}%${hoursLabel}`}</title>
                   </rect>
                 );
               })}
