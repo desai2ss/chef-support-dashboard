@@ -168,15 +168,25 @@ function buildCsv(args: {
       .join(",")
   );
   for (const r of rows) {
-    const util = Number(r.utilPctAvg);
-    const up = Number(r.uptimePctAvg);
+    // r.utilPctAvg / r.uptimePctAvg are `null` for non-scheduled (site, bucket)
+    // cells — Number(null) is 0, which is finite, so we must check for
+    // null/undefined explicitly before coercing or we'd wrongly emit "0.00"
+    // for days the site wasn't even scheduled to run.
+    const util =
+      r.utilPctAvg === null || r.utilPctAvg === undefined
+        ? null
+        : Number(r.utilPctAvg);
+    const up =
+      r.uptimePctAvg === null || r.uptimePctAvg === undefined
+        ? null
+        : Number(r.uptimePctAvg);
     const serv = Number(r.servingsSum ?? 0);
     lines.push(
       [
         r.bucket,
         r.site,
-        Number.isFinite(util) ? util.toFixed(2) : "",
-        Number.isFinite(up) ? up.toFixed(2) : "",
+        util !== null && Number.isFinite(util) ? util.toFixed(2) : "",
+        up !== null && Number.isFinite(up) ? up.toFixed(2) : "",
         Number.isFinite(serv) ? Math.round(serv) : "",
         Number(r.robotsCount ?? 0),
       ]
@@ -303,15 +313,27 @@ export default function MetricsView({ editor }: { editor: boolean }) {
         uptimeN = 0;
       let servings = 0;
       for (const r of rows) {
-        const u = Number(r.utilPctAvg);
-        if (Number.isFinite(u)) {
-          utilSum += u;
-          utilN += 1;
+        // r.utilPctAvg / r.uptimePctAvg come back as `null` from the API for
+        // (site, bucket) cells that weren't scheduled at all (e.g. a
+        // Mon-Fri site on a Saturday). Number(null) === 0 in JS, and 0 is
+        // finite, so a bare `Number.isFinite(Number(x))` check silently
+        // treats "not scheduled" the same as "scheduled, 0% util" — that
+        // drags the fleet KPI down by counting off-days as zeros. Guard on
+        // null/undefined first so only real reported cells contribute,
+        // matching the documented "off-days don't contribute to averages."
+        if (r.utilPctAvg !== null && r.utilPctAvg !== undefined) {
+          const u = Number(r.utilPctAvg);
+          if (Number.isFinite(u)) {
+            utilSum += u;
+            utilN += 1;
+          }
         }
-        const up = Number(r.uptimePctAvg);
-        if (Number.isFinite(up)) {
-          uptimeSum += up;
-          uptimeN += 1;
+        if (r.uptimePctAvg !== null && r.uptimePctAvg !== undefined) {
+          const up = Number(r.uptimePctAvg);
+          if (Number.isFinite(up)) {
+            uptimeSum += up;
+            uptimeN += 1;
+          }
         }
         // Postgres returns SUM() as a string in node-postgres; coerce.
         servings += Number(r.servingsSum ?? 0);
@@ -2154,7 +2176,7 @@ function LineChart({
                       });
                     }}
                   >
-                    <title>{`${site} · ${b} · ${v.toFixed(1)}%${hrs > 0 ? ` · ${hrs.toFixed(1)}h across ${nRobots} robots` : ""}`}</title>
+                    <title>{`${site} · ${b} · ${v.toFixed(1)}%${hrs > 0 && nRobots > 0 ? ` · ${(hrs / nRobots).toFixed(1)}h/robot (${nRobots} robots)` : ""}`}</title>
                   </rect>
                 );
               })}
@@ -2184,19 +2206,16 @@ function LineChart({
           </div>
           <div className="tabular-nums text-ink">
             {hover.util.toFixed(1)}% util
-            {hover.hours > 0 ? (
+            {hover.hours > 0 && hover.robots > 0 ? (
               <>
                 {" · "}
                 <span className="font-medium">
-                  {hover.hours.toFixed(1)}h run
+                  {(hover.hours / hover.robots).toFixed(1)}h/robot
                 </span>
-                {hover.robots > 0 ? (
-                  <span className="text-muted">
-                    {" "}
-                    across {hover.robots} robot
-                    {hover.robots === 1 ? "" : "s"}
-                  </span>
-                ) : null}
+                <span className="text-muted">
+                  {" "}
+                  ({hover.robots} robot{hover.robots === 1 ? "" : "s"})
+                </span>
               </>
             ) : (
               <span className="text-muted"> · no hours reported</span>
