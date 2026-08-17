@@ -178,8 +178,6 @@ async function querySessions(
       AND end_time > start_time
       AND DATETIME_DIFF(end_time, start_time, HOUR) <= 48
       AND label = 'PRODUCTION'
-      -- Exclude warm-up / routine sessions — they're not real production.
-      AND (meal_name IS NULL OR LOWER(meal_name) NOT LIKE '%warm up routine%')
       AND customer_id IN (${customerIdsList})
   `;
 
