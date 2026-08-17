@@ -197,6 +197,8 @@ export async function fetchFleetUtilization(daysBack = 7): Promise<FleetRobotRow
       WHERE start_time >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL @days DAY)
         AND end_time IS NOT NULL
         AND end_time > start_time
+        -- Exclude warm-up routine meals from utilization math.
+        AND (recipe_name IS NULL OR LOWER(recipe_name) NOT LIKE '%warm up routine%')
     )
     SELECT
       FORMAT_DATE('%Y-%m-%d', prod_date) AS prod_date,

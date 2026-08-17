@@ -123,9 +123,9 @@ export const SITES: SiteInfo[] = [
   {
     name: "CookUnity LAX",
     timezone: "America/Los_Angeles",
-    operatingHours: "Fri-Tue · 8 hrs/day (closed Wed/Thu)",
+    operatingHours: "Fri-Tue · 11 hrs/day (closed Wed/Thu)",
     scheduledDays: FRI_TUE,
-    availableHrsPerDay: 8,
+    availableHrsPerDay: 11,
     pylonNames: ["CookUnity LAX"],
     bqCustomerIds: ["cookunity"],
     bqHostnameWhitelist: ["asimo-pc", "butter-pc", "preston-pc", "escaflowne-pc"],
