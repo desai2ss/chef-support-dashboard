@@ -179,9 +179,7 @@ async function querySessions(
       AND DATETIME_DIFF(end_time, start_time, HOUR) <= 48
       AND label = 'PRODUCTION'
       -- Exclude warm-up / routine sessions — they're not real production.
-      -- Match case-insensitively so "Warm Up Routine", "Warm-Up Routine",
-      -- "warm up routine", etc. are all filtered out.
-      AND (recipe_name IS NULL OR LOWER(recipe_name) NOT LIKE '%warm up routine%')
+      AND (meal_name IS NULL OR LOWER(meal_name) NOT LIKE '%warm up routine%')
       AND customer_id IN (${customerIdsList})
   `;
 
