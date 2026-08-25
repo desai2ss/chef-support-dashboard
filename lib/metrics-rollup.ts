@@ -34,7 +34,7 @@ const EXCLUDED_SITES = new Set(
 //   tz:     IANA timezone string ("America/Los_Angeles")
 //
 // Returns "YYYY-MM-DD".
-function productionDateForUtc(utcIso: string, tz: string): string {
+export function productionDateForUtc(utcIso: string, tz: string): string {
   const ts = new Date(utcIso.endsWith("Z") ? utcIso : utcIso + "Z");
   if (Number.isNaN(ts.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -107,7 +107,7 @@ async function signJwt(sa: SAKey): Promise<string> {
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
-async function getAccessToken(): Promise<string> {
+export async function getAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
     return cachedToken.value;
   }
