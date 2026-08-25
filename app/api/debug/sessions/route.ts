@@ -38,6 +38,54 @@ export async function GET(req: Request) {
   const siteName = url.searchParams.get("site") ?? "";
   const date = url.searchParams.get("date") ?? "";
   const wantSchema = url.searchParams.get("schema") === "1";
+  const wantMeals = url.searchParams.get("meals") === "1";
+
+  // ?meals=1 → return distinct meal_id values seen in PRODUCTION sessions
+  // over the last 30 days. Use this to find the warm-up meal_id string.
+  if (wantMeals) {
+    const project = process.env.GCP_PROJECT_ID;
+    if (!project) {
+      return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
+    }
+    const table =
+      process.env.BQ_SESSIONS_TABLE ||
+      "chef-robotics-infra.coremetrics_staging.sessions_v0";
+    const sqlMeals = `
+      SELECT meal_id, COUNT(*) AS n_sessions,
+             SUM(DATETIME_DIFF(end_time, start_time, SECOND)) / 3600.0 AS total_hours
+      FROM \`${table}\`
+      WHERE start_time >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)
+        AND label = 'PRODUCTION'
+        AND end_time > start_time
+      GROUP BY meal_id
+      ORDER BY n_sessions DESC
+      LIMIT 200
+    `;
+    try {
+      const token = await getAccessToken();
+      const r = await fetch(
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: sqlMeals, useLegacySql: false, timeoutMs: 25000 }),
+        }
+      );
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        return NextResponse.json({ error: `BigQuery ${r.status}: ${body.slice(0, 400)}` }, { status: 502 });
+      }
+      const data = (await r.json()) as { rows?: { f: { v: string }[] }[] };
+      const meals = (data.rows ?? []).map((row) => ({
+        meal_id: row.f[0]?.v ?? "",
+        n_sessions: Number(row.f[1]?.v ?? 0),
+        total_hours: +Number(row.f[2]?.v ?? 0).toFixed(1),
+      }));
+      return NextResponse.json({ ok: true, meals });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "meals query failed" }, { status: 500 });
+    }
+  }
 
   // Special mode: ?schema=1 → return sessions_v0 column list. Useful for
   // figuring out which column holds warm-up meal info without a BQ console.
