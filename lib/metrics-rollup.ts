@@ -178,6 +178,11 @@ async function querySessions(
       AND end_time > start_time
       AND DATETIME_DIFF(end_time, start_time, HOUR) <= 48
       AND label = 'PRODUCTION'
+      -- Exclude the "Warm Up Routine" meal — not real production, inflates util.
+      -- meal_id sourced from BQ; add more IDs here if new warm-up variants show up.
+      AND (meal_id IS NULL OR meal_id NOT IN (
+        '0e766b76-7b18-482a-9fb3-43d260c9d08c'
+      ))
       AND customer_id IN (${customerIdsList})
   `;
 

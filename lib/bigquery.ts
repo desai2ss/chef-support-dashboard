@@ -197,6 +197,10 @@ export async function fetchFleetUtilization(daysBack = 7): Promise<FleetRobotRow
       WHERE start_time >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL @days DAY)
         AND end_time IS NOT NULL
         AND end_time > start_time
+        -- Exclude the "Warm Up Routine" meal (not real production).
+        AND (meal_id IS NULL OR meal_id NOT IN (
+          '0e766b76-7b18-482a-9fb3-43d260c9d08c'
+        ))
     )
     SELECT
       FORMAT_DATE('%Y-%m-%d', prod_date) AS prod_date,
