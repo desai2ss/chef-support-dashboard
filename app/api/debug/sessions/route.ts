@@ -39,6 +39,72 @@ export async function GET(req: Request) {
   const date = url.searchParams.get("date") ?? "";
   const wantSchema = url.searchParams.get("schema") === "1";
   const wantMeals = url.searchParams.get("meals") === "1";
+  const wantTables = url.searchParams.get("tables") === "1";
+  const tableForSchema = url.searchParams.get("schemaOf");
+
+  // ?tables=1 → list all tables in coremetrics_staging dataset
+  if (wantTables) {
+    const project = process.env.GCP_PROJECT_ID;
+    if (!project) return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
+    const sqlT = `
+      SELECT table_name, table_type
+      FROM \`chef-robotics-infra.coremetrics_staging.INFORMATION_SCHEMA.TABLES\`
+      ORDER BY table_name
+    `;
+    try {
+      const token = await getAccessToken();
+      const r = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sqlT, useLegacySql: false, timeoutMs: 25000 }),
+      });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        return NextResponse.json({ error: `BigQuery ${r.status}: ${body.slice(0, 400)}` }, { status: 502 });
+      }
+      const data = (await r.json()) as { rows?: { f: { v: string }[] }[] };
+      const tables = (data.rows ?? []).map((row) => ({
+        name: row.f[0]?.v ?? "",
+        type: row.f[1]?.v ?? "",
+      }));
+      return NextResponse.json({ ok: true, tables });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "tables query failed" }, { status: 500 });
+    }
+  }
+
+  // ?schemaOf=<table_name> → return columns for that table
+  if (tableForSchema) {
+    const project = process.env.GCP_PROJECT_ID;
+    if (!project) return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
+    const safe = tableForSchema.replace(/[^a-zA-Z0-9_]/g, "");
+    const sqlC = `
+      SELECT column_name, data_type
+      FROM \`chef-robotics-infra.coremetrics_staging.INFORMATION_SCHEMA.COLUMNS\`
+      WHERE table_name = '${safe}'
+      ORDER BY ordinal_position
+    `;
+    try {
+      const token = await getAccessToken();
+      const r = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sqlC, useLegacySql: false, timeoutMs: 25000 }),
+      });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        return NextResponse.json({ error: `BigQuery ${r.status}: ${body.slice(0, 400)}` }, { status: 502 });
+      }
+      const data = (await r.json()) as { rows?: { f: { v: string }[] }[] };
+      const cols = (data.rows ?? []).map((row) => ({
+        name: row.f[0]?.v ?? "",
+        type: row.f[1]?.v ?? "",
+      }));
+      return NextResponse.json({ ok: true, table: safe, columns: cols });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "schemaOf query failed" }, { status: 500 });
+    }
+  }
 
   // ?meals=1 → return distinct meal_id values seen in PRODUCTION sessions
   // over the last 30 days. Use this to find the warm-up meal_id string.
@@ -177,6 +243,7 @@ export async function GET(req: Request) {
       hostname,
       customer_id,
       label,
+      meal_id,
       DATETIME_DIFF(end_time, start_time, SECOND) AS duration_sec,
       COALESCE(bowl_count, 0) AS bowl_count
     FROM \`${table}\`
@@ -235,10 +302,14 @@ export async function GET(req: Request) {
         ? productionDateForUtc(obj.start_time_iso, site.timezone)
         : "";
       const belongsToDate = prodDate === date;
+      const mealId = obj.meal_id ?? "";
+      const isWarmUp = mealId === "0e766b76-7b18-482a-9fb3-43d260c9d08c";
       return {
         hostname: obj.hostname ?? "",
         customer_id: obj.customer_id ?? "",
         label: obj.label ?? "",
+        meal_id: mealId,
+        is_warm_up: isWarmUp,
         start_time_utc: obj.start_time_iso ?? "",
         end_time_utc: obj.end_time_iso ?? "",
         duration_sec: durationSec,
@@ -247,7 +318,10 @@ export async function GET(req: Request) {
         production_date: prodDate,
         belongs_to_target_date: belongsToDate,
         counted_in_rollup:
-          belongsToDate && obj.label === "PRODUCTION" && durationSec / 3600 <= 48,
+          belongsToDate &&
+          obj.label === "PRODUCTION" &&
+          durationSec / 3600 <= 48 &&
+          !isWarmUp,
       };
     });
 
