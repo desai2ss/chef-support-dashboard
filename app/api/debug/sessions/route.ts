@@ -41,6 +41,100 @@ export async function GET(req: Request) {
   const wantMeals = url.searchParams.get("meals") === "1";
   const wantTables = url.searchParams.get("tables") === "1";
   const tableForSchema = url.searchParams.get("schemaOf");
+  const wantStates = url.searchParams.get("states") === "1";
+  const stateHostname = url.searchParams.get("host");
+  const stateDate = url.searchParams.get("stateDate");
+
+  // ?states=1 → distinct system_run_mode values seen in last 30d + freq
+  if (wantStates) {
+    const project = process.env.GCP_PROJECT_ID;
+    if (!project) return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
+    const sqlS = `
+      SELECT system_run_mode, COUNT(*) AS n
+      FROM \`chef-robotics-infra.coremetrics_staging.system_state_v0\`
+      WHERE header_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+      GROUP BY system_run_mode
+      ORDER BY n DESC
+    `;
+    try {
+      const token = await getAccessToken();
+      const r = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sqlS, useLegacySql: false, timeoutMs: 25000 }),
+      });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        return NextResponse.json({ error: `BQ ${r.status}: ${body.slice(0, 400)}` }, { status: 502 });
+      }
+      const data = (await r.json()) as { rows?: { f: { v: string }[] }[] };
+      return NextResponse.json({
+        ok: true,
+        states: (data.rows ?? []).map((row) => ({
+          system_run_mode: row.f[0]?.v ?? "",
+          n: Number(row.f[1]?.v ?? 0),
+        })),
+      });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "states query failed" }, { status: 500 });
+    }
+  }
+
+  // ?host=<hostname>&stateDate=YYYY-MM-DD → compute "ACTIVE" hours from
+  // system_state_v0 using LEAD to derive duration per state, filter to ACTIVE,
+  // group by production_date (midnight local, hardcoded to America/Los_Angeles).
+  if (stateHostname && stateDate && DATE_RE.test(stateDate)) {
+    const project = process.env.GCP_PROJECT_ID;
+    if (!project) return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
+    const safeHost = stateHostname.replace(/[^a-zA-Z0-9_-]/g, "");
+    const sqlA = `
+      WITH ordered AS (
+        SELECT
+          hostname,
+          system_run_mode,
+          header_time,
+          LEAD(header_time) OVER (PARTITION BY hostname ORDER BY header_time) AS next_time
+        FROM \`chef-robotics-infra.coremetrics_staging.system_state_v0\`
+        WHERE hostname = '${safeHost}'
+          AND header_time BETWEEN TIMESTAMP('${stateDate} 00:00:00', 'America/Los_Angeles')
+                              AND TIMESTAMP('${stateDate} 23:59:59', 'America/Los_Angeles')
+      )
+      SELECT
+        system_run_mode,
+        SUM(TIMESTAMP_DIFF(next_time, header_time, SECOND)) / 3600.0 AS hours,
+        COUNT(*) AS transitions
+      FROM ordered
+      WHERE next_time IS NOT NULL
+        AND TIMESTAMP_DIFF(next_time, header_time, SECOND) < 3600  -- ignore dead gaps > 1h
+      GROUP BY system_run_mode
+      ORDER BY hours DESC
+    `;
+    try {
+      const token = await getAccessToken();
+      const r = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sqlA, useLegacySql: false, timeoutMs: 25000 }),
+      });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        return NextResponse.json({ error: `BQ ${r.status}: ${body.slice(0, 400)}` }, { status: 502 });
+      }
+      const data = (await r.json()) as { rows?: { f: { v: string }[] }[] };
+      return NextResponse.json({
+        ok: true,
+        host: safeHost,
+        date: stateDate,
+        state_hours: (data.rows ?? []).map((row) => ({
+          state: row.f[0]?.v ?? "",
+          hours: +Number(row.f[1]?.v ?? 0).toFixed(2),
+          transitions: Number(row.f[2]?.v ?? 0),
+        })),
+      });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message ?? "state hours query failed" }, { status: 500 });
+    }
+  }
 
   // ?tables=1 → list all tables in coremetrics_staging dataset
   if (wantTables) {
