@@ -87,25 +87,45 @@ export async function GET(req: Request) {
     const project = process.env.GCP_PROJECT_ID;
     if (!project) return NextResponse.json({ error: "GCP_PROJECT_ID not set" }, { status: 500 });
     const safeHost = stateHostname.replace(/[^a-zA-Z0-9_-]/g, "");
+    // Partition by (hostname, module_id) — a robot has multiple modules that
+    // all publish state pings at the same header_time. Without module_id in
+    // the PARTITION, LEAD returns the same header_time for concurrent modules,
+    // making the derived duration 0.
     const sqlA = `
       WITH ordered AS (
         SELECT
           hostname,
+          module_id,
           system_run_mode,
           header_time,
-          LEAD(header_time) OVER (PARTITION BY hostname ORDER BY header_time) AS next_time
+          LEAD(header_time) OVER (
+            PARTITION BY hostname, module_id
+            ORDER BY header_time
+          ) AS next_time
         FROM \`chef-robotics-infra.coremetrics_staging.system_state_v0\`
         WHERE hostname = '${safeHost}'
           AND header_time BETWEEN TIMESTAMP('${stateDate} 00:00:00', 'America/Los_Angeles')
                               AND TIMESTAMP('${stateDate} 23:59:59', 'America/Los_Angeles')
+      ),
+      per_mod AS (
+        SELECT
+          module_id,
+          system_run_mode,
+          SUM(TIMESTAMP_DIFF(next_time, header_time, MILLISECOND)) / 3600000.0 AS hours,
+          COUNT(*) AS pings,
+          MAX(TIMESTAMP_DIFF(next_time, header_time, MILLISECOND)) AS max_gap_ms
+        FROM ordered
+        WHERE next_time IS NOT NULL
+          AND TIMESTAMP_DIFF(next_time, header_time, MILLISECOND) < 3600000
+        GROUP BY module_id, system_run_mode
       )
       SELECT
         system_run_mode,
-        SUM(TIMESTAMP_DIFF(next_time, header_time, SECOND)) / 3600.0 AS hours,
-        COUNT(*) AS transitions
-      FROM ordered
-      WHERE next_time IS NOT NULL
-        AND TIMESTAMP_DIFF(next_time, header_time, SECOND) < 3600  -- ignore dead gaps > 1h
+        SUM(hours) AS hours,
+        SUM(pings) AS pings,
+        COUNT(DISTINCT module_id) AS n_modules,
+        MAX(max_gap_ms) AS worst_gap_ms
+      FROM per_mod
       GROUP BY system_run_mode
       ORDER BY hours DESC
     `;
@@ -128,7 +148,9 @@ export async function GET(req: Request) {
         state_hours: (data.rows ?? []).map((row) => ({
           state: row.f[0]?.v ?? "",
           hours: +Number(row.f[1]?.v ?? 0).toFixed(2),
-          transitions: Number(row.f[2]?.v ?? 0),
+          pings: Number(row.f[2]?.v ?? 0),
+          n_modules: Number(row.f[3]?.v ?? 0),
+          worst_gap_ms: Number(row.f[4]?.v ?? 0),
         })),
       });
     } catch (e: any) {
