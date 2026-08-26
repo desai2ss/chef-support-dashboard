@@ -233,7 +233,144 @@ async function querySessions(
 // Multiplier on availableHrsPerDay to compute the per-site max-session-length
 // cap. A real production session shouldn't exceed 1.5× the scheduled day
 // — anything longer is almost certainly a stuck agent with a bogus end_time.
+// (Used only when falling back to session-based hours; state-based hours
+// don't need this because they're direct measurements.)
 const SESSION_CAP_MULTIPLIER = 1.5;
+
+// ---- BQ query: state-based ACTIVE hours per (hostname, production_date) ----
+//
+// Reads system_state_v0 (per-module state pings) and derives per-module
+// duration in each state via LEAD over consecutive pings. Sums to
+// per-day ACTIVE hours (only counting the ACTIVE state). Uses midnight
+// local (site tz) as the day boundary — this matches Remy/Retool.
+//
+// Returns Map<`${hostname}|${YYYY-MM-DD}`, activeHours>.
+async function queryActiveHoursFromState(
+  from: string,
+  to: string
+): Promise<Map<string, number>> {
+  const project = process.env.GCP_PROJECT_ID;
+  if (!project) throw new Error("GCP_PROJECT_ID not set");
+  const token = await getAccessToken();
+
+  // Build hostname → site tz mapping from ROBOTS + SITES config, then group
+  // by tz so we can emit a compact CASE expression in SQL.
+  const siteTz = new Map(SITES.map((s) => [s.name, s.timezone]));
+  const hostTz = new Map<string, string>();
+  for (const r of ROBOTS) {
+    const tz = siteTz.get(r.site) ?? "UTC";
+    hostTz.set(r.hostname, tz);
+  }
+  const hostnames = Array.from(hostTz.keys());
+  if (hostnames.length === 0) return new Map();
+
+  // Group hostnames by tz for compact CASE:
+  //   CASE WHEN hostname IN ('a','b') THEN 'America/Los_Angeles'
+  //        WHEN hostname IN ('c','d') THEN 'America/Edmonton'
+  //   END
+  const byTz = new Map<string, string[]>();
+  for (const [h, tz] of hostTz) {
+    if (!byTz.has(tz)) byTz.set(tz, []);
+    byTz.get(tz)!.push(h);
+  }
+  const caseExpr =
+    "CASE " +
+    Array.from(byTz.entries())
+      .map(
+        ([tz, hs]) =>
+          `WHEN hostname IN (${hs.map((h) => `'${h}'`).join(",")}) THEN '${tz}'`
+      )
+      .join(" ") +
+    " ELSE 'UTC' END";
+  const hostList = hostnames.map((h) => `'${h}'`).join(",");
+
+  // Widen the raw scan by ±1 day (UTC) so that pings which fall inside a
+  // local production day at the edges are still captured. The final
+  // WHERE clips back to the requested [from, to] local window.
+  const sqlStr = `
+    WITH ordered AS (
+      SELECT
+        hostname,
+        module_id,
+        system_run_mode,
+        header_time,
+        DATE(header_time, ${caseExpr}) AS prod_date_local,
+        LEAD(header_time) OVER (
+          PARTITION BY hostname, module_id
+          ORDER BY header_time
+        ) AS next_time
+      FROM \`chef-robotics-infra.coremetrics_staging.system_state_v0\`
+      WHERE hostname IN (${hostList})
+        AND header_time >= TIMESTAMP_SUB(TIMESTAMP('${from} 00:00:00', 'UTC'), INTERVAL 1 DAY)
+        AND header_time <  TIMESTAMP_ADD(TIMESTAMP('${to} 23:59:59', 'UTC'), INTERVAL 1 DAY)
+    ),
+    per_ping AS (
+      SELECT
+        hostname,
+        module_id,
+        prod_date_local,
+        system_run_mode,
+        TIMESTAMP_DIFF(next_time, header_time, MILLISECOND) AS dur_ms
+      FROM ordered
+      WHERE next_time IS NOT NULL
+        -- Drop gaps > 1h (robot rebooted / offline). Legit state durations
+        -- almost never exceed a few minutes between pings.
+        AND TIMESTAMP_DIFF(next_time, header_time, MILLISECOND) < 3600000
+    ),
+    per_mod_day AS (
+      SELECT
+        hostname,
+        module_id,
+        prod_date_local,
+        SUM(CASE WHEN system_run_mode = 'ACTIVE' THEN dur_ms ELSE 0 END) / 3600000.0
+          AS active_h
+      FROM per_ping
+      GROUP BY hostname, module_id, prod_date_local
+    )
+    SELECT
+      hostname,
+      FORMAT_DATE('%Y-%m-%d', prod_date_local) AS prod_date,
+      SUM(active_h) AS active_hours
+    FROM per_mod_day
+    WHERE prod_date_local BETWEEN DATE('${from}') AND DATE('${to}')
+    GROUP BY hostname, prod_date_local
+  `;
+
+  const res = await fetch(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${project}/queries`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: sqlStr,
+        useLegacySql: false,
+        timeoutMs: 55000,
+      }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`BigQuery (state) ${res.status}: ${body.slice(0, 400)}`);
+  }
+  const data = (await res.json()) as {
+    schema?: { fields: { name: string }[] };
+    rows?: { f: { v: string }[] }[];
+  };
+  const fields = data.schema?.fields.map((f) => f.name) ?? [];
+  const out = new Map<string, number>();
+  for (const r of data.rows ?? []) {
+    const obj: Record<string, string | undefined> = {};
+    fields.forEach((n, i) => (obj[n] = r.f[i]?.v));
+    const host = obj.hostname ?? "";
+    const date = obj.prod_date ?? "";
+    const hrs = Number(obj.active_hours ?? 0);
+    if (host && date) out.set(`${host}|${date}`, hrs);
+  }
+  return out;
+}
 
 // ---- Main entrypoint -----------------------------------------------------
 
@@ -257,7 +394,13 @@ export async function runRollup(
   from: string,
   to: string
 ): Promise<RollupResult> {
-  const sessions = await querySessions(from, to);
+  // Run both queries in parallel:
+  //   sessions_v0  → servings (bowl_count per session)
+  //   system_state_v0 → ACTIVE hours per (hostname, local prod date)
+  const [sessions, activeHoursMap] = await Promise.all([
+    querySessions(from, to),
+    queryActiveHoursFromState(from, to),
+  ]);
   let written = 0;
   let skipped = 0;
   const unknown = new Set<string>();
@@ -340,19 +483,55 @@ export async function runRollup(
     productionHours: number;
     servings: number | null;
   };
+  // Ensure a row exists for every (hostname, date) that has state-based
+  // ACTIVE hours, even if we didn't see any sessions for it. This is
+  // important because state pings are the source of truth for util now.
+  for (const [key, _hrs] of activeHoursMap) {
+    const [hostname, date] = key.split("|");
+    const robot = HOSTNAME_LOOKUP.get(hostname);
+    if (!robot) continue;
+    if (EXCLUDED_SITES.has(robot.site)) continue;
+    if (date < from || date > to) continue;
+    const aggKey = `${robot.sn}|${date}`;
+    if (!aggregated.has(aggKey)) {
+      aggregated.set(aggKey, {
+        sn: robot.sn,
+        date,
+        site: robot.site,
+        productionHours: 0,
+        servings: 0,
+      });
+    }
+  }
+
   const rows: Row[] = Array.from(aggregated.values()).map((a) => {
     const availHrs = AVAILABLE_HRS.get(a.site);
-    const dailyCap =
-      availHrs && availHrs > 0 ? Math.min(availHrs * SESSION_CAP_MULTIPLIER, 24) : 24;
-    const cappedHours = Math.min(a.productionHours, dailyCap);
-    if (a.productionHours > dailyCap) dailyCapHits++;
+    const robot = ROBOTS.find((r) => r.sn === a.sn);
+    const activeHrs = robot
+      ? activeHoursMap.get(`${robot.hostname}|${a.date}`) ?? 0
+      : 0;
+    // Prefer state-based ACTIVE hours (matches Remy). If we have no state
+    // data for this cell (e.g. old date before state_v0 was populated),
+    // fall back to the session-based capped hours as a last resort.
+    const productionHours =
+      activeHrs > 0
+        ? +activeHrs.toFixed(2)
+        : (() => {
+            const dailyCap =
+              availHrs && availHrs > 0
+                ? Math.min(availHrs * SESSION_CAP_MULTIPLIER, 24)
+                : 24;
+            const capped = Math.min(a.productionHours, dailyCap);
+            if (a.productionHours > dailyCap) dailyCapHits++;
+            return capped;
+          })();
     return {
       sn: a.sn,
       date: a.date,
       site: a.site,
       utilPct:
-        availHrs && availHrs > 0 ? (cappedHours / availHrs) * 100 : null,
-      productionHours: cappedHours,
+        availHrs && availHrs > 0 ? (productionHours / availHrs) * 100 : null,
+      productionHours,
       servings: Math.round(a.servings),
     };
   });
