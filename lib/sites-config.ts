@@ -96,9 +96,9 @@ export const SITES: SiteInfo[] = [
   {
     name: "F&S Foods",
     timezone: "America/New_York", // Vineland, NJ
-    operatingHours: "Mon-Sat · 7am-5pm EST",
+    operatingHours: "Mon-Sat · 8 hrs/day",
     scheduledDays: MON_SAT,
-    availableHrsPerDay: 10,
+    availableHrsPerDay: 8,
     pylonNames: ["F&S Foods"], // dashboard display name from pylon whitelist
     bqCustomerIds: ["fsfreshfoods"],
   },
