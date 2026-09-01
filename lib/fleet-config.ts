@@ -91,7 +91,8 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "endy-pc",       sn: 65, nickname: "endy",       site: "POH" },
 
   // Bonduelle · Irwindale (3 robots)
-  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle" },
+  // nines-pc hasn't passed SAT yet — exclude from utilization until it goes live.
+  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle", spare: true },
   { hostname: "bumblebee-pc",  sn: 111, nickname: "bumblebee",  site: "Bonduelle" },
   { hostname: "bhakti-pc",     sn: 112, nickname: "bhakti",     site: "Bonduelle" },
 

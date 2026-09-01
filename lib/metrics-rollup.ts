@@ -60,9 +60,17 @@ export function productionDateForUtc(utcIso: string, tz: string): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-// Map hostname -> { sn, site }
+// Map hostname -> { sn, site, spare }. Spare robots are excluded from the
+// rollup so they don't drag site utilization down while awaiting SAT or
+// during long-term maintenance. They still appear on the Fleet tab.
 const HOSTNAME_LOOKUP = new Map(
-  ROBOTS.map((r) => [r.hostname, { sn: r.sn, site: r.site }])
+  ROBOTS.map((r) => [
+    r.hostname,
+    { sn: r.sn, site: r.site, spare: !!r.spare },
+  ])
+);
+const SPARE_HOSTNAMES = new Set(
+  ROBOTS.filter((r) => r.spare).map((r) => r.hostname)
 );
 
 // All BQ customer_ids we want to query.
@@ -425,6 +433,11 @@ export async function runRollup(
       skipped++;
       continue;
     }
+    // Spare robots (pre-SAT, decommissioned, etc.) are excluded from rollup.
+    if (robot.spare) {
+      skipped++;
+      continue;
+    }
     const site = siteFor(sess.customer_id, sess.hostname) ?? robot.site;
     // Skip sites flagged excludeFromMetrics — they don't get rolled up.
     if (EXCLUDED_SITES.has(site)) {
@@ -490,6 +503,7 @@ export async function runRollup(
     const [hostname, date] = key.split("|");
     const robot = HOSTNAME_LOOKUP.get(hostname);
     if (!robot) continue;
+    if (robot.spare) continue;
     if (EXCLUDED_SITES.has(robot.site)) continue;
     if (date < from || date > to) continue;
     const aggKey = `${robot.sn}|${date}`;
@@ -566,6 +580,17 @@ export async function runRollup(
     for (const site of EXCLUDED_SITES) {
       await db.execute(
         sql`DELETE FROM daily_metrics WHERE site = ${site} AND date BETWEEN ${from} AND ${to}`
+      );
+    }
+  }
+
+  // Also remove any pre-existing rows for spare SNs (e.g. nines-pc before
+  // it passed SAT) so they stop dragging site averages down.
+  const spareSns = ROBOTS.filter((r) => r.spare).map((r) => r.sn);
+  if (spareSns.length > 0) {
+    for (const sn of spareSns) {
+      await db.execute(
+        sql`DELETE FROM daily_metrics WHERE sn = ${sn} AND date BETWEEN ${from} AND ${to}`
       );
     }
   }
