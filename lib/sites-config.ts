@@ -105,9 +105,9 @@ export const SITES: SiteInfo[] = [
   {
     name: "Bonduelle",
     timezone: "America/Los_Angeles", // Irwindale, CA
-    operatingHours: "Mon-Sat",
+    operatingHours: "Mon-Sat · 12 hrs/day",
     scheduledDays: MON_SAT,
-    availableHrsPerDay: 16,
+    availableHrsPerDay: 12,
     pylonNames: ["Bonduelle"],
     bqCustomerIds: ["bonduelle"],
   },
