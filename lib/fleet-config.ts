@@ -70,13 +70,16 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "chitti-pc",     sn: 59, nickname: "chitti",     site: "Café Spice" },
   { hostname: "optimus-pc",    sn: 60, nickname: "optimus",    site: "Café Spice" },
 
-  // F&S Foods · Vineland (6 robots)
+  // F&S Foods · Vineland (9 robots)
   { hostname: "pizzabagel-pc", sn: 105, nickname: "pizzabagel", site: "F&S Foods" },
   { hostname: "emily-pc",      sn: 106, nickname: "emily",      site: "F&S Foods" },
   { hostname: "dalek-pc",      sn: 107, nickname: "dalek",      site: "F&S Foods" },
   { hostname: "kipp-pc",       sn: 117, nickname: "kipp",       site: "F&S Foods" },
   { hostname: "bigo-pc",       sn: 118, nickname: "bigo",       site: "F&S Foods" },
   { hostname: "bnine-pc",      sn: 119, nickname: "bnine",      site: "F&S Foods" },
+  { hostname: "milo-pc",       sn: 124, nickname: "milo",       site: "F&S Foods" },
+  { hostname: "atom-pc",       sn: 129, nickname: "atom",       site: "F&S Foods" },
+  { hostname: "boxy-pc",       sn: 137, nickname: "boxy",       site: "F&S Foods" },
 
   // Chef Bombay · Nisku (6 robots)
   { hostname: "astroboy-pc",   sn: 13, nickname: "astroboy",   site: "Chef Bombay" },
