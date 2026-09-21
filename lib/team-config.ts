@@ -60,4 +60,11 @@ export const TEAM: TeamMember[] = [
     pylonEmail: "fredy@chefrobotics.ai",
     colorClass: "bg-cyan-500",
   },
+  {
+    id: "mikhail-zherebnenko",
+    name: "Mikhail Zherebnenko",
+    initials: "MZ",
+    pylonEmail: "mikhail@chefrobotics.ai",
+    colorClass: "bg-teal-500",
+  },
 ];
