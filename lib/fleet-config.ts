@@ -27,10 +27,10 @@ export type RobotConfig = {
 // Robot roster. Hostnames are the BQ `sessions_v0.hostname` values; SN +
 // nickname are how we display them in the UI ("SN29 eric").
 export const ROBOTS: RobotConfig[] = [
-  // Amy's Medford (11 robots)
+  // Amy's Medford (11 robots total; SN17 is the on-site spare)
   { hostname: "chappie-pc",     sn: 4,  nickname: "chappie",     site: "Amy's Medford" },
   { hostname: "frankenstein-pc",sn: 6,  nickname: "frankenstein",site: "Amy's Medford" },
-  { hostname: "toaster-pc",     sn: 17, nickname: "toaster",     site: "Amy's Medford" },
+  { hostname: "toaster-pc",     sn: 17, nickname: "toaster",     site: "Amy's Medford", spare: true },
   { hostname: "sophon-pc",      sn: 23, nickname: "sophon",      site: "Amy's Medford" },
   { hostname: "burgl-pc",       sn: 24, nickname: "burgl",       site: "Amy's Medford" },
   { hostname: "tars-pc",        sn: 25, nickname: "tars",        site: "Amy's Medford" },
@@ -40,8 +40,8 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "baxter-pc",      sn: 49, nickname: "baxter",      site: "Amy's Medford" },
   { hostname: "ash-pc",         sn: 50, nickname: "ash",         site: "Amy's Medford" },
 
-  // Amy's Pocatello (9 robots)
-  { hostname: "redcomet-pc", sn: 18, nickname: "redcomet", site: "Amy's Pocatello" },
+  // Amy's Pocatello (9 robots; SN18 redcomet is the on-site spare)
+  { hostname: "redcomet-pc", sn: 18, nickname: "redcomet", site: "Amy's Pocatello", spare: true },
   { hostname: "eric-pc",     sn: 29, nickname: "eric",     site: "Amy's Pocatello" },
   { hostname: "brendan-pc",  sn: 30, nickname: "brendan",  site: "Amy's Pocatello" },
   { hostname: "case-pc",     sn: 32, nickname: "case",     site: "Amy's Pocatello" },
@@ -51,8 +51,8 @@ export const ROBOTS: RobotConfig[] = [
   { hostname: "alfred-pc",   sn: 46, nickname: "alfred",   site: "Amy's Pocatello" },
   { hostname: "angela-pc",   sn: 47, nickname: "angela",   site: "Amy's Pocatello" },
 
-  // Café Spice (17 robots)
-  { hostname: "gort-pc",       sn: 11, nickname: "gort",       site: "Café Spice" },
+  // Café Spice (17 robots; SN11 gort is the on-site spare)
+  { hostname: "gort-pc",       sn: 11, nickname: "gort",       site: "Café Spice", spare: true },
   { hostname: "rachael-pc",    sn: 19, nickname: "rachael",    site: "Café Spice" },
   { hostname: "smith-pc",      sn: 20, nickname: "smith",      site: "Café Spice" },
   { hostname: "boomer-pc",     sn: 31, nickname: "boomer",     site: "Café Spice" },
@@ -95,7 +95,7 @@ export const ROBOTS: RobotConfig[] = [
 
   // Bonduelle · Irwindale (3 robots)
   // nines-pc hasn't passed SAT yet — exclude from utilization until it goes live.
-  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle" },
+  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle", spare: true },
   { hostname: "bumblebee-pc",  sn: 111, nickname: "bumblebee",  site: "Bonduelle" },
   { hostname: "bhakti-pc",     sn: 112, nickname: "bhakti",     site: "Bonduelle" },
 
