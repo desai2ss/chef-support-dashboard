@@ -22,6 +22,7 @@ import { auth } from "@/auth";
 import { db, schema } from "@/lib/db";
 import { sql, and, gte, lte, eq, notInArray } from "drizzle-orm";
 import { SITES } from "@/lib/sites-config";
+import { ROBOTS } from "@/lib/fleet-config";
 
 // Sites that should never appear in Metrics output even if rows exist in DB.
 const EXCLUDED_SITES = SITES.filter((s) => s.excludeFromMetrics).map(
@@ -45,6 +46,30 @@ function buildSiteScheduleValuesSql(siteFilter: string | null): string {
   );
   if (tuples.length === 0) {
     // No eligible sites — return a no-op subquery yielding 0 rows.
+    return `(SELECT NULL::text, NULL::int WHERE FALSE)`;
+  }
+  return `(VALUES ${tuples.join(", ")})`;
+}
+
+// Sites with on-site spares are expected to always have that many robots
+// idle — usually the spare, but sometimes the spare runs while another robot
+// sits in the back. So site util averages only the top N robots per day,
+// where N = metric robots − spares. Returns a VALUES clause of (site, slots)
+// for sites that have spares; sites without spares average every robot.
+function buildActiveSlotsValuesSql(): string {
+  const safeName = (s: string) => s.replace(/'/g, "''");
+  const bySite = new Map<string, { total: number; spares: number }>();
+  for (const r of ROBOTS) {
+    if (r.excludeFromMetrics) continue;
+    const e = bySite.get(r.site) ?? { total: 0, spares: 0 };
+    e.total++;
+    if (r.spare) e.spares++;
+    bySite.set(r.site, e);
+  }
+  const tuples = Array.from(bySite)
+    .filter(([, e]) => e.spares > 0)
+    .map(([site, e]) => `('${safeName(site)}', ${Math.max(e.total - e.spares, 1)})`);
+  if (tuples.length === 0) {
     return `(SELECT NULL::text, NULL::int WHERE FALSE)`;
   }
   return `(VALUES ${tuples.join(", ")})`;
@@ -108,6 +133,7 @@ export async function GET(req: Request) {
 
   // Schedule grid: every (site, scheduled_dow) tuple from SITES config.
   const siteScheduleSql = buildSiteScheduleValuesSql(siteFilter);
+  const activeSlotsSql = buildActiveSlotsValuesSql();
 
   // Drift WHERE for per-robot drilldown (uses Drizzle columns).
   const driftWhere = [
@@ -139,6 +165,24 @@ export async function GET(req: Request) {
       sites_in_play AS (
         SELECT DISTINCT site FROM schedule
       ),
+      active_slots AS (
+        SELECT site, slots
+        FROM ${sql.raw(activeSlotsSql)} AS sl(site, slots)
+      ),
+      -- Rank robots by util within each (site, date). For sites with spares,
+      -- only the top N (slots) robots count toward site util (see
+      -- buildActiveSlotsValuesSql). Servings/hours still use every robot.
+      dm_ranked AS (
+        SELECT
+          dm.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY dm.site, dm.date
+            ORDER BY dm.util_pct DESC NULLS LAST
+          ) <= COALESCE(sl.slots, 2147483647) AS counts_for_util
+        FROM daily_metrics dm
+        LEFT JOIN active_slots sl ON sl.site = dm.site
+        WHERE dm.date BETWEEN ${from} AND ${to}
+      ),
       all_site_days AS (
         SELECT sip.site, dr.date_col, dr.dow
         FROM sites_in_play sip
@@ -149,7 +193,7 @@ export async function GET(req: Request) {
           asd.site,
           to_char(asd.date_col, 'YYYY-MM-DD') AS date,
           CASE WHEN sch.dow IS NOT NULL THEN true ELSE false END AS is_scheduled,
-          AVG(dm.util_pct)::real                  AS daily_util,
+          AVG(CASE WHEN dm.counts_for_util THEN dm.util_pct END)::real AS daily_util,
           COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
           COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
           COALESCE(SUM(dm.production_hours), 0)::real AS daily_hours,
@@ -157,7 +201,7 @@ export async function GET(req: Request) {
         FROM all_site_days asd
         LEFT JOIN schedule sch
           ON sch.site = asd.site AND sch.dow = asd.dow
-        LEFT JOIN daily_metrics dm
+        LEFT JOIN dm_ranked dm
           ON dm.site = asd.site
          AND dm.date = to_char(asd.date_col, 'YYYY-MM-DD')
         GROUP BY asd.site, asd.date_col, sch.dow
