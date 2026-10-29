@@ -22,6 +22,9 @@ export type RobotConfig = {
   // still appear on the Fleet view (so we can check their health) but get
   // a "Spare" badge and are excluded from "active fleet" counts.
   spare?: boolean;
+  // True if this robot should be left out of daily_metrics entirely (e.g.
+  // installed but hasn't passed SAT). Still shown on the Fleet view.
+  excludeFromMetrics?: boolean;
 };
 
 // Robot roster. Hostnames are the BQ `sessions_v0.hostname` values; SN +
@@ -95,7 +98,7 @@ export const ROBOTS: RobotConfig[] = [
 
   // Bonduelle · Irwindale (3 robots)
   // nines-pc hasn't passed SAT yet — exclude from utilization until it goes live.
-  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle", spare: true },
+  { hostname: "nines-pc",      sn: 109, nickname: "nines",      site: "Bonduelle", spare: true, excludeFromMetrics: true },
   { hostname: "bumblebee-pc",  sn: 111, nickname: "bumblebee",  site: "Bonduelle" },
   { hostname: "bhakti-pc",     sn: 112, nickname: "bhakti",     site: "Bonduelle" },
 

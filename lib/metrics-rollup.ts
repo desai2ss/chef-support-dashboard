@@ -60,17 +60,14 @@ export function productionDateForUtc(utcIso: string, tz: string): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-// Map hostname -> { sn, site, spare }. Spare robots are excluded from the
-// rollup so they don't drag site utilization down while awaiting SAT or
-// during long-term maintenance. They still appear on the Fleet tab.
+// Map hostname -> { sn, site, excludeFromMetrics }. Spares ARE rolled up
+// (the Metrics API keeps them from dragging site util down). Robots flagged
+// excludeFromMetrics (e.g. pre-SAT) are skipped entirely.
 const HOSTNAME_LOOKUP = new Map(
   ROBOTS.map((r) => [
     r.hostname,
-    { sn: r.sn, site: r.site, spare: !!r.spare },
+    { sn: r.sn, site: r.site, excludeFromMetrics: !!r.excludeFromMetrics },
   ])
-);
-const SPARE_HOSTNAMES = new Set(
-  ROBOTS.filter((r) => r.spare).map((r) => r.hostname)
 );
 
 // All BQ customer_ids we want to query.
@@ -433,8 +430,8 @@ export async function runRollup(
       skipped++;
       continue;
     }
-    // Spare robots (pre-SAT, decommissioned, etc.) are excluded from rollup.
-    if (robot.spare) {
+    // Robots flagged excludeFromMetrics (pre-SAT, etc.) are not rolled up.
+    if (robot.excludeFromMetrics) {
       skipped++;
       continue;
     }
@@ -503,7 +500,7 @@ export async function runRollup(
     const [hostname, date] = key.split("|");
     const robot = HOSTNAME_LOOKUP.get(hostname);
     if (!robot) continue;
-    if (robot.spare) continue;
+    if (robot.excludeFromMetrics) continue;
     if (EXCLUDED_SITES.has(robot.site)) continue;
     if (date < from || date > to) continue;
     const aggKey = `${robot.sn}|${date}`;
@@ -584,15 +581,13 @@ export async function runRollup(
     }
   }
 
-  // Also remove any pre-existing rows for spare SNs (e.g. nines-pc before
-  // it passed SAT) so they stop dragging site averages down.
-  const spareSns = ROBOTS.filter((r) => r.spare).map((r) => r.sn);
-  if (spareSns.length > 0) {
-    for (const sn of spareSns) {
-      await db.execute(
-        sql`DELETE FROM daily_metrics WHERE sn = ${sn} AND date BETWEEN ${from} AND ${to}`
-      );
-    }
+  // Also remove any pre-existing rows for robots flagged excludeFromMetrics
+  // (e.g. nines-pc before it passed SAT).
+  const excludedSns = ROBOTS.filter((r) => r.excludeFromMetrics).map((r) => r.sn);
+  for (const sn of excludedSns) {
+    await db.execute(
+      sql`DELETE FROM daily_metrics WHERE sn = ${sn} AND date BETWEEN ${from} AND ${to}`
+    );
   }
 
   return {
