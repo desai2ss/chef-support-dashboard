@@ -75,6 +75,11 @@ function buildActiveSlotsValuesSql(): string {
   return `(VALUES ${tuples.join(", ")})`;
 }
 
+// A robot only counts toward a day's robot count (and so the h/robot
+// tooltip) if it ran more than this % of the day. Filters out robots that
+// were powered on but idle, or only ran a few minutes.
+const MIN_UTIL_PCT_TO_COUNT = 2;
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -197,7 +202,13 @@ export async function GET(req: Request) {
           COALESCE(AVG(dm.uptime_pct), 100)::real AS daily_uptime,
           COALESCE(SUM(dm.servings), 0)::bigint   AS daily_servings,
           COALESCE(SUM(dm.production_hours), 0)::real AS daily_hours,
-          COUNT(DISTINCT dm.sn)                   AS daily_robots
+          -- Robots that actually ran: > MIN_UTIL_PCT_TO_COUNT util. If util
+          -- is unknown (no available-hours config), fall back to any hours.
+          COUNT(DISTINCT CASE
+            WHEN dm.util_pct > ${MIN_UTIL_PCT_TO_COUNT}
+              OR (dm.util_pct IS NULL AND dm.production_hours > 0)
+            THEN dm.sn
+          END)                                    AS daily_robots
         FROM all_site_days asd
         LEFT JOIN schedule sch
           ON sch.site = asd.site AND sch.dow = asd.dow
