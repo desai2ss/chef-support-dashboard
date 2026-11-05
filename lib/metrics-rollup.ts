@@ -480,7 +480,7 @@ export async function runRollup(
   // overlapping/stuck sessions on the same day can sum to absurd totals
   // (e.g. CookUnity LAX showing 213% util on a 8-hr day = 17 hrs of "prod").
   // The daily cap = min(availHrs × 1.5, 24) keeps numbers physically possible:
-  //   POH (4hr):  cap=6   → max util 150%
+  //   POH (2hr):  cap=3   → max util 150%
   //   LAX (8hr):  cap=12  → max util 150%
   //   CB (17hr):  cap=24  → max util 141% (physical 24h ceiling)
   //   Amys (16):  cap=24  → max util 150%
