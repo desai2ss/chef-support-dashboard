@@ -626,7 +626,7 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                       <td
                         key={b}
                         className="py-2 px-2 text-right text-ink tabular-nums"
-                        title={`${cell.robotsCount} robots ran (>2% util)`}
+                        title={`${cell.robotsCount} robots ran (>10% util)`}
                       >
                         {cell.utilPctAvg.toFixed(0)}%
                       </td>
@@ -745,7 +745,7 @@ export default function MetricsView({ editor }: { editor: boolean }) {
                         <td
                           key={b}
                           className="py-2 px-2 text-right text-ink tabular-nums"
-                          title={`${cell.robotsCount} robots ran (>2% util)`}
+                          title={`${cell.robotsCount} robots ran (>10% util)`}
                         >
                           {v.toLocaleString()}
                         </td>

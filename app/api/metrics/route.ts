@@ -78,7 +78,7 @@ function buildActiveSlotsValuesSql(): string {
 // A robot only counts toward a day's robot count (and so the h/robot
 // tooltip) if it ran more than this % of the day. Filters out robots that
 // were powered on but idle, or only ran a few minutes.
-const MIN_UTIL_PCT_TO_COUNT = 2;
+const MIN_UTIL_PCT_TO_COUNT = 10;
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
