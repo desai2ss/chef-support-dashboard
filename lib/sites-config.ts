@@ -116,7 +116,7 @@ export const SITES: SiteInfo[] = [
     timezone: "America/Los_Angeles", // Openhand SF
     operatingHours: "Mon-Fri",
     scheduledDays: MON_FRI,
-    availableHrsPerDay: 4,
+    availableHrsPerDay: 2,
     pylonNames: ["POH"],
     bqCustomerIds: ["openhand"],
   },

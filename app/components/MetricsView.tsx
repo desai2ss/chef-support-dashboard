@@ -1788,8 +1788,8 @@ function MethodologySection() {
                 <strong>/api/metrics/backfill</strong> — admin-only endpoint
                 that queries BQ for any date range and upserts into{" "}
                 <code className="text-[12px]">daily_metrics</code>. Run
-                manually when configs change (e.g. you just bumped POH from 2
-                to 4 hrs/day; re-running the backfill recalculates util_pct
+                manually when configs change (e.g. you just changed POH from 4
+                to 2 hrs/day; re-running the backfill recalculates util_pct
                 for every existing row).
               </li>
               <li>
