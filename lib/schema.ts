@@ -115,3 +115,44 @@ export type TeamCalendarEntry = typeof teamCalendar.$inferSelect;
 export type NewTeamCalendarEntry = typeof teamCalendar.$inferInsert;
 export type DailyMetricsRow = typeof dailyMetrics.$inferSelect;
 export type NewDailyMetricsRow = typeof dailyMetrics.$inferInsert;
+
+// Pstops — populated nightly alongside daily_metrics by lib/pstops-rollup.ts.
+// Counts come from completed PRODUCTION sessions (sessions_v0 +
+// session_state_v0) and WARNING_ROBOT_FAULTED_WHILE_RUN_MODE_ACTIVE alerts.
+// Dates are the site's local calendar day. Tables are created on demand by
+// ensurePstopTables(), so no manual migration is needed.
+
+// Completed production sessions per (session start date, sn, ingredient).
+export const pstopSessionsDaily = pgTable(
+  "pstop_sessions_daily",
+  {
+    date: text("date").notNull(), // YYYY-MM-DD local session start date
+    sn: integer("sn").notNull(),
+    site: text("site").notNull(),
+    ingredient: text("ingredient").notNull(),
+    sessions: integer("sessions").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.date, t.sn, t.ingredient] }),
+  })
+);
+
+// Pstops per (session start date, pstop date, sn, ingredient). Keeping the
+// pstop's own date lets a From–To view drop pstops that happened after To
+// (e.g. a session that ran past midnight on the last day).
+export const pstopCountsDaily = pgTable(
+  "pstop_counts_daily",
+  {
+    sessionDate: text("session_date").notNull(), // YYYY-MM-DD local
+    pstopDate: text("pstop_date").notNull(), // YYYY-MM-DD local
+    sn: integer("sn").notNull(),
+    site: text("site").notNull(),
+    ingredient: text("ingredient").notNull(),
+    pstops: integer("pstops").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.sessionDate, t.pstopDate, t.sn, t.ingredient] }),
+  })
+);

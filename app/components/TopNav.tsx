@@ -11,6 +11,7 @@ const TABS: { href: string; label: string; enabled: boolean }[] = [
   { href: "/sites", label: "Sites", enabled: true },
   { href: "/metrics", label: "Metrics", enabled: true },
   { href: "/team", label: "Team", enabled: true },
+  { href: "/test", label: "Test", enabled: true },
 ];
 
 export default function TopNav() {

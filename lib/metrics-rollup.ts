@@ -12,6 +12,7 @@ import { db, schema } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { SITES } from "@/lib/sites-config";
 import { ROBOTS, siteFor } from "@/lib/fleet-config";
+import { queryPstops, writePstops } from "@/lib/pstops-rollup";
 
 // Map site name -> available hrs/day (for util % denominator).
 const AVAILABLE_HRS = new Map(
@@ -393,6 +394,11 @@ export type RollupResult = {
   excludedSiteSessions: number;
   // (sn, date) rows whose daily total exceeded availHrs × 1.5 and were capped.
   dailyCapHits: number;
+  // Pstop rollup (lib/pstops-rollup.ts). pstopsError is set if it failed;
+  // utilization is still written in that case.
+  pstopSessionRows: number;
+  pstopCountRows: number;
+  pstopsError?: string;
 };
 
 export async function runRollup(
@@ -402,6 +408,11 @@ export async function runRollup(
   // Run both queries in parallel:
   //   sessions_v0  → servings (bowl_count per session)
   //   system_state_v0 → ACTIVE hours per (hostname, local prod date)
+  // The pstop query runs alongside; its failure must not block utilization.
+  const pstopsPromise = queryPstops(from, to).then(
+    (rows) => ({ rows, error: null as string | null }),
+    (e) => ({ rows: [], error: String(e?.message ?? e) })
+  );
   const [sessions, activeHoursMap] = await Promise.all([
     querySessions(from, to),
     queryActiveHoursFromState(from, to),
@@ -590,6 +601,21 @@ export async function runRollup(
     );
   }
 
+  // Pstops: replace rows for this window with the fresh BQ results.
+  let pstopSessionRows = 0;
+  let pstopCountRows = 0;
+  const pstops = await pstopsPromise;
+  let pstopsError = pstops.error ?? undefined;
+  if (!pstopsError) {
+    try {
+      const r = await writePstops(from, to, pstops.rows);
+      pstopSessionRows = r.pstopSessionRows;
+      pstopCountRows = r.pstopCountRows;
+    } catch (e: any) {
+      pstopsError = String(e?.message ?? e);
+    }
+  }
+
   return {
     from,
     to,
@@ -600,6 +626,9 @@ export async function runRollup(
     unknownHostnames: Array.from(unknown).sort(),
     cappedSessions,
     dailyCapHits: (rows as any)._dailyCapHits ?? 0,
+    pstopSessionRows,
+    pstopCountRows,
+    pstopsError,
   };
 }
 
