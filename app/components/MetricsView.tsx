@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SITES, isDayScheduled } from "@/lib/sites-config";
 import { ROBOTS } from "@/lib/fleet-config";
 
-type RollupRow = {
+export type RollupRow = {
   bucket: string; // YYYY-MM-DD | YYYY-Wxx | YYYY-MM
   site: string;
   utilPctAvg: number | null;
@@ -78,7 +78,7 @@ function parseDate(yyyyMmDd: string): Date {
 
 // Format a "bucket" identifier returned by /api/metrics for a header label.
 // Returns { line1, line2 } so headers can stack day-name on top of m/d.
-function formatBucket(
+export function formatBucket(
   bucket: string,
   grain: "day" | "week" | "month"
 ): { line1: string; line2: string } {
@@ -1954,7 +1954,7 @@ function MethodologySection() {
 }
 
 // ---- KPI card ------------------------------------------------------------
-function KpiCard({
+export function KpiCard({
   label,
   value,
   sub,
@@ -1988,7 +1988,7 @@ const SITE_COLORS = [
   "#475569", // slate
 ];
 
-function LineChart({
+export function LineChart({
   buckets,
   matrix,
   sites,

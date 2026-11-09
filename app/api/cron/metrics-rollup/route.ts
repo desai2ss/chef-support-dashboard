@@ -72,7 +72,7 @@ async function handle(req: Request) {
     // your project → Deployments → latest → Logs, filtered by this path.
     // eslint-disable-next-line no-console
     console.log(
-      `[cron/metrics-rollup] OK ${result.from}..${result.to} — scanned=${result.rowsScanned} written=${result.rowsWritten} skipped=${result.rowsSkipped}${result.unknownHostnames.length ? ` unknown=${result.unknownHostnames.join(",")}` : ""}`
+      `[cron/metrics-rollup] OK ${result.from}..${result.to} — scanned=${result.rowsScanned} written=${result.rowsWritten} skipped=${result.rowsSkipped} pstopRows=${result.pstopSessionRows}+${result.pstopCountRows}${result.pstopsError ? ` pstopsError=${result.pstopsError}` : ""}${result.unknownHostnames.length ? ` unknown=${result.unknownHostnames.join(",")}` : ""}`
     );
     return NextResponse.json({
       ok: true,
